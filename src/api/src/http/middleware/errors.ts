@@ -41,6 +41,9 @@ export function errorHandler(logger?: Logger): ErrorRequestHandler {
       case '23503':
         res.status(409).json({ error: { code: 'CONFLICT', message: 'Referenced record does not exist or is still in use' } });
         return;
+      case '23502':
+        res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'A required value is missing' } });
+        return;
       case '22P02':
         res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'Malformed identifier' } });
         return;
