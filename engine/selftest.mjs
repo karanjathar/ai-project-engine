@@ -330,6 +330,16 @@ describe('hardening', () => {
     assert.match(r.out, /not in progress/);
   });
 
+  test('CRLF files (Windows checkouts) are handled: block and add-task keep working', () => {
+    const q = project();
+    q.run(['init', '--profile', 'node-ts', '--name', 'crlf']);
+    q.put('docs/4_TASKS.md', TASKS.replace(/\n/g, '\r\n'));
+    q.put('docs/6_STATE_SUMMARY.md', q.file('docs/6_STATE_SUMMARY.md').replace(/\r?\n/g, '\r\n'));
+    assert.match(q.run(['block', 'T01', 'credentials missing (401 from provider)']).out, /T01 blocked/);
+    assert.match(q.file('docs/6_STATE_SUMMARY.md'), /## Blocked\n- \*\*T01\*\*/);
+    assert.match(q.run(['add-task', 'Phase 2: Features', 'Extra | accept: x']).out, /added T04/);
+  });
+
   test('a hanging gate times out instead of stalling forever', () => {
     const q = project();
     q.run(['init', '--profile', 'node-ts', '--name', 'slow']);

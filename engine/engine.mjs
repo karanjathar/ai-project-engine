@@ -32,7 +32,8 @@ const F = {
 
 export class EngineError extends Error {}
 const fail = (msg) => { throw new EngineError(msg); };
-const read = (p) => readFileSync(p, 'utf8');
+// Normalise CRLF (Windows checkouts with autocrlf) so line-based parsing and appends never mix endings.
+const read = (p) => readFileSync(p, 'utf8').replace(/\r\n/g, '\n');
 const write = (p, s) => { mkdirSync(path.dirname(p), { recursive: true }); writeFileSync(p, s); };
 const rel = (p) => path.relative(ROOT, p).split(path.sep).join('/');
 const today = () => new Date().toISOString().slice(0, 10);
