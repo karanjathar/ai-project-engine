@@ -7,6 +7,7 @@ import { errorHandler, notFoundHandler } from './middleware/errors.js';
 import { requireAuth } from './middleware/auth.js';
 import { authRoutes } from './routes/auth.js';
 import { userRoutes } from './routes/users.js';
+import { categoryRoutes, productRoutes } from './routes/catalog.js';
 
 export function createApp(c: Container): Express {
   const { env, pool, logger } = c;
@@ -51,6 +52,8 @@ export function createApp(c: Container): Express {
   // Each group below requires a valid token.
   const secure = requireAuth(c.auth);
   api.use('/users', secure, userRoutes(c));
+  api.use('/categories', secure, categoryRoutes(c));
+  api.use('/products', secure, productRoutes(c));
 
   app.use('/api', api);
   app.use('/api', notFoundHandler);
