@@ -5,4 +5,3 @@ export interface Messenger {
   send(channel: ChannelName, to: string, text: string): Promise<void>;
 }
 
-export const noopMessenger: Messenger = { send: async () => {} };

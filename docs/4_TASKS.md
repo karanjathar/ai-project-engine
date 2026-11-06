@@ -18,7 +18,7 @@ Each task is TDD: failing test → implementation → `npm run typecheck && npm 
 - [x] T12 Dashboard stats + low-stock alert service (event + channel notify)
 
 ## Integrations
-- [ ] T13 Channel adapters (WhatsApp, Messenger, Instagram, Telegram) + ChannelHub + message log
+- [x] T13 Channel adapters (WhatsApp, Messenger, Instagram, Telegram) + ChannelHub + message log
 - [ ] T14 Bot command engine (help/catalog/stock/price/order/status)
 - [ ] T15 Webhooks: Meta verify + HMAC signature + parsing; Telegram secret header; idempotent by message id
 - [ ] T16 Order status notifications to the customer's channel; `/messages`, `/messages/send`, `/channels`

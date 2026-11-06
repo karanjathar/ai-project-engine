@@ -1,0 +1,33 @@
+import type { ChannelName } from '../domain/types.js';
+import { ValidationError } from '../domain/errors.js';
+import type { MessagesRepo } from '../repositories/messages.js';
+import type { Messenger } from '../services/messenger.js';
+import type { ChannelAdapter } from './types.js';
+
+export class ChannelHub implements Messenger {
+  private readonly adapters: Map<ChannelName, ChannelAdapter>;
+
+  constructor(adapters: ChannelAdapter[], private readonly log: MessagesRepo) {
+    this.adapters = new Map(adapters.map((a) => [a.name, a]));
+  }
+
+  status(): { name: ChannelName; configured: boolean }[] {
+    return [...this.adapters.values()].map((a) => ({ name: a.name, configured: a.isConfigured() }));
+  }
+
+  async send(channel: ChannelName, to: string, text: string): Promise<void> {
+    const adapter = this.adapters.get(channel);
+    if (!adapter) throw new ValidationError(`Unknown channel: ${channel}`);
+    if (!adapter.isConfigured()) {
+      await this.log.logOutbound(channel, to, text, 'skipped');
+      return;
+    }
+    try {
+      await adapter.send(to, text);
+      await this.log.logOutbound(channel, to, text, 'ok');
+    } catch (err) {
+      await this.log.logOutbound(channel, to, text, 'failed');
+      throw err;
+    }
+  }
+}

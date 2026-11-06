@@ -12,7 +12,12 @@ import { SettingsService } from './services/settings.js';
 import { EventBus } from './realtime/bus.js';
 import { OrdersService } from './services/orders.js';
 import { AlertService } from './services/alerts.js';
-import { noopMessenger, type Messenger } from './services/messenger.js';
+import type { Messenger } from './services/messenger.js';
+import { MessagesRepo } from './repositories/messages.js';
+import { ChannelHub } from './channels/hub.js';
+import { WhatsAppAdapter } from './channels/whatsapp.js';
+import { MetaPageAdapter } from './channels/metaPage.js';
+import { TelegramAdapter } from './channels/telegram.js';
 
 export interface ContainerOverrides {
   logger?: Logger;
@@ -44,11 +49,18 @@ export function createContainer(opts: { env: Env; pool: pg.Pool } & ContainerOve
   const customers = new CustomersRepo(pool);
   const settings = new SettingsService(pool);
   const orders = new OrdersService(pool, stock, settings, events, (err) => logger.error({ err }, 'order observer failed'));
-  let messenger: Messenger = opts.messenger ?? noopMessenger;
-  const alerts = new AlertService(repos.products, settings, events, () => messenger, logger);
+  const messages = new MessagesRepo(pool);
+  const fetchFn = opts.fetch ?? fetch;
+  const hub = new ChannelHub([
+    new WhatsAppAdapter({ token: env.WHATSAPP_TOKEN, phoneNumberId: env.WHATSAPP_PHONE_NUMBER_ID, graphVersion: env.META_GRAPH_VERSION }, fetchFn),
+    new MetaPageAdapter('messenger', { token: env.MESSENGER_PAGE_TOKEN, graphVersion: env.META_GRAPH_VERSION }, fetchFn),
+    new MetaPageAdapter('instagram', { token: env.INSTAGRAM_PAGE_TOKEN, graphVersion: env.META_GRAPH_VERSION }, fetchFn),
+    new TelegramAdapter({ token: env.TELEGRAM_BOT_TOKEN }, fetchFn),
+  ], messages);
+  const messenger: Messenger = opts.messenger ?? hub;
+  const alerts = new AlertService(repos.products, settings, events, messenger, logger);
   stock.onChanged((changes) => alerts.onStockChanged(changes));
-  const setMessenger = (m: Messenger) => { messenger = opts.messenger ?? m; };
-  return { env, pool, logger, repos, auth, stock, customers, settings, events, orders, alerts, setMessenger, messenger: () => messenger };
+  return { env, pool, logger, repos, auth, stock, customers, settings, events, orders, alerts, messages, hub, messenger };
 }
 
 export type Container = ReturnType<typeof createContainer>;
