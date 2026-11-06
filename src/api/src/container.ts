@@ -9,6 +9,7 @@ import type { Category, Supplier, Warehouse } from './domain/types.js';
 import { AuthService } from './services/auth.js';
 import { StockService } from './services/stock.js';
 import { SettingsService } from './services/settings.js';
+import { EventBus } from './realtime/bus.js';
 
 export interface ContainerOverrides {
   logger?: Logger;
@@ -27,9 +28,17 @@ export function createContainer(opts: { env: Env; pool: pg.Pool } & ContainerOve
   };
   const auth = new AuthService(repos.users, env.JWT_SECRET, env.JWT_EXPIRES_IN, env.NODE_ENV === 'test' ? 4 : 12);
   const stock = new StockService(pool, (err) => logger.error({ err }, 'stock observer failed'));
+  const events = new EventBus();
+  stock.onChanged(async (changes) => {
+    for (const ch of changes) {
+      const p = await repos.products.get(ch.productId);
+      if (!p) continue;
+      events.publish({ type: 'stock.changed', productId: p.id, sku: p.sku, warehouseId: ch.warehouseId, quantity: ch.quantity, totalQuantity: p.totalQuantity });
+    }
+  });
   const customers = new CustomersRepo(pool);
   const settings = new SettingsService(pool);
-  return { env, pool, logger, repos, auth, stock, customers, settings };
+  return { env, pool, logger, repos, auth, stock, customers, settings, events };
 }
 
 export type Container = ReturnType<typeof createContainer>;
