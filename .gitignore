@@ -14,3 +14,6 @@ obj/
 # Logs & Testing
 *.log
 coverage/
+
+# Local deployment secrets
+infra/*.secrets.json

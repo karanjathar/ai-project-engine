@@ -1,0 +1,94 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Lint, type-check, test, build
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: inventory_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/inventory_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Type-check
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
+      - name: Unit & integration tests
+        run: npm test
+      - name: Production build
+        run: npm run build
+      - name: Validate infrastructure (Bicep)
+        run: az bicep build --file infra/main.bicep --stdout > /dev/null
+
+  deploy:
+    name: Build image & deploy to Azure Container Apps
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      id-token: write # OIDC federated login to Azure — no long-lived cloud credentials stored in GitHub
+    env:
+      IMAGE: ${{ vars.ACR_NAME }}.azurecr.io/stocksync:${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Build and push image to ACR
+        run: |
+          az acr login --name "${{ vars.ACR_NAME }}"
+          docker build --pull -t "$IMAGE" -t "${{ vars.ACR_NAME }}.azurecr.io/stocksync:latest" .
+          docker push "$IMAGE"
+          docker push "${{ vars.ACR_NAME }}.azurecr.io/stocksync:latest"
+
+      - name: Deploy new revision
+        run: |
+          az containerapp update \
+            --name "${{ vars.CONTAINER_APP_NAME }}" \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --image "$IMAGE" \
+            --output none
+
+      - name: Smoke test /healthz
+        run: |
+          url="https://$(az containerapp show -n "${{ vars.CONTAINER_APP_NAME }}" -g "${{ vars.AZURE_RESOURCE_GROUP }}" --query properties.configuration.ingress.fqdn -o tsv)"
+          for i in $(seq 1 30); do
+            if curl -fsS "$url/healthz" | grep -q '"db":"ok"'; then echo "Healthy: $url"; exit 0; fi
+            sleep 10
+          done
+          echo "Health check failed for $url" >&2
+          exit 1
