@@ -12,6 +12,7 @@ import { settingsRoutes } from './routes/settings.js';
 import { sseHandler } from '../realtime/sse.js';
 import { orderRoutes } from './routes/orders.js';
 import { dashboardStats } from '../services/dashboard.js';
+import { webhookRoutes } from './routes/webhooks.js';
 import { categoryRoutes, customerRoutes, productRoutes, supplierRoutes, warehouseRoutes } from './routes/catalog.js';
 
 export function createApp(c: Container): Express {
@@ -70,6 +71,7 @@ export function createApp(c: Container): Express {
 
   app.use('/api', api);
   app.use('/api', notFoundHandler);
+  app.use('/webhooks', webhookRoutes(c));
   app.use('/webhooks', notFoundHandler);
   app.use(errorHandler(logger));
   return app;
