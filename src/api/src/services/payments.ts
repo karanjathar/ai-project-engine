@@ -223,7 +223,7 @@ export class PaymentService {
     if (event !== 'payment_link.paid') return;
 
     const paidCents = link.amount_paid ?? payload.payment?.entity.amount ?? 0;
-    const settled = await withTx(this.pool, async (c) => {
+    const settled = await withTx(this.pool, async (c): Promise<{ orderId: string; good: boolean; fresh: boolean; duplicate?: string } | undefined> => {
       const p = await c.query<{ id: string; order_id: string; status: string; amount_cents: number }>(
         'SELECT id, order_id, status, amount_cents FROM payments WHERE provider_ref = $1 FOR UPDATE', [link.id]);
       const payment = p.rows[0];
@@ -233,8 +233,12 @@ export class PaymentService {
       // Already settled (a re-delivery, or a retry after a crash): don't touch money state again,
       // but report it so the confirm step below can still complete if it didn't finish last time.
       if (payment.status === 'PAID') return { orderId: payment.order_id, good: order.payment_status === 'PAID', fresh: false };
+      // Did the customer already pay this order through another link? Then this is an EXTRA payment: record the money,
+      // leave the order alone, and make sure a human refunds it.
+      const other = await c.query("SELECT 1 FROM payments WHERE order_id = $1 AND status = 'PAID' AND id <> $2 LIMIT 1", [payment.order_id, payment.id]);
       await c.query("UPDATE payments SET status = 'PAID', provider_payment_id = $2, updated_at = now() WHERE id = $1",
         [payment.id, payload.payment?.entity.id ?? null]);
+      if (other.rowCount) return { orderId: payment.order_id, good: true, fresh: true, duplicate: payload.payment?.entity.id ?? link.id };
       // Money arrived. It is only "good" if the amount matches and the order can still be fulfilled.
       const good = paidCents === payment.amount_cents && order.status !== 'CANCELLED';
       await c.query('UPDATE orders SET payment_status = $2, updated_at = now() WHERE id = $1', [payment.order_id, good ? 'PAID' : 'REFUND_DUE']);
@@ -243,6 +247,12 @@ export class PaymentService {
     if (!settled) return;
 
     let order = (await this.orders.get(settled.orderId))!;
+    if (settled.duplicate) {
+      const money = formatMoney(paidCents, (await this.settings.get()).currency);
+      await this.alertStaff(`⚠️ Duplicate payment for order #${order.number}: ${settled.duplicate} (${money}) was paid after the order was already paid. Refund the extra payment in Razorpay.`);
+      await this.sendToCustomer(order, { text: `We received a second payment for order #${order.number}. We'll refund the extra payment shortly.` });
+      return;
+    }
     if (settled.fresh) this.events.publish({ type: 'payment.updated', orderId: order.id, number: order.number, paymentStatus: order.paymentStatus });
     if (!settled.good) {
       if (!settled.fresh) return; // staff were already alerted when it was first settled

@@ -114,6 +114,35 @@ describe('POST /webhooks/razorpay (T36)', () => {
     expect((await send({ nonsense: true }, { eventId: 'evt_garbage' })).status).toBe(200);
   });
 
+  it('a second payment (customer paid two links of one order) is recorded, flagged for refund, and never double-confirms', async () => {
+    await t.c.stock.receive({ productId: ids.tee.id, warehouseId: ids.main.id, quantity: 10 }, null);
+    const order = await t.c.orders.create({ customerId, channel: 'whatsapp', paymentMethod: 'ONLINE', items: [{ productId: ids.tee.id, quantity: 1 }] });
+    const first = await t.c.payments.linkForOrder(order.id);
+    await t.pool.query("UPDATE payments SET expires_at = now() - interval '1 minute' WHERE id = $1", [first.id]);
+    const second = await t.c.payments.linkForOrder(order.id); // replaces the stale link
+    expect(second.id).not.toBe(first.id);
+
+    const before = await stockOf();
+    await send(paidEvent(first.providerRef, 1500), { eventId: 'evt_dup_1' });   // customer pays the OLD link…
+    expect(await t.c.orders.get(order.id)).toMatchObject({ status: 'CONFIRMED', paymentStatus: 'PAID' });
+    alerts.length = 0;
+    expect((await send(paidEvent(second.providerRef, 1500), { eventId: 'evt_dup_2' })).status).toBe(200); // …and the NEW one too
+
+    const rows = (await t.pool.query('SELECT provider_ref, status FROM payments WHERE order_id = $1 ORDER BY created_at', [order.id])).rows;
+    expect(rows.map((r) => r.status)).toEqual(['PAID', 'PAID']);
+    expect(await t.c.orders.get(order.id)).toMatchObject({ status: 'CONFIRMED', paymentStatus: 'PAID' }); // order unaffected
+    expect(await stockOf()).toBe(before - 1);                                                             // stock deducted once
+    const staff = alerts.filter((a) => a.startsWith('STAFF:'));
+    expect(staff).toHaveLength(1);
+    expect(staff[0]).toContain(`#${order.number}`);
+    expect(staff[0]).toContain(`pay_${second.providerRef}`);
+    expect(staff[0]).toMatch(/duplicate/i);
+    expect(alerts.some((a) => a.startsWith('919811110000:') && /second payment/i.test(a))).toBe(true);
+
+    await send(paidEvent(second.providerRef, 1500), { eventId: 'evt_dup_3' }); // re-delivery under a new event id
+    expect(alerts.filter((a) => a.startsWith('STAFF:'))).toHaveLength(1);
+  });
+
   it('a crash while auto-confirming is recovered by Razorpay retrying the same event', async () => {
     await t.c.stock.receive({ productId: ids.tee.id, warehouseId: ids.main.id, quantity: 10 }, null);
     const { order, plink } = await onlineOrder(1);
