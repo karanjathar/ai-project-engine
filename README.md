@@ -18,7 +18,7 @@ StockSync is a full inventory management platform. It has a **web dashboard** (a
 
 ## Quick start
 ```bash
-docker compose up --build        # → http://localhost:8080  (admin@example.com / ChangeMe123!)
+docker compose up --build        # → http://localhost:3005  (admin@example.com / ChangeMe123!)
 ```
 Deploy to Azure: **[docs/DEPLOYMENT_GUIDE.md](docs/DEPLOYMENT_GUIDE.md)**.
 

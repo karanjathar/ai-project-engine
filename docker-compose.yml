@@ -1,5 +1,6 @@
 # Local / staging topology: App + PostgreSQL + Azurite (Azure Blob Storage emulator).
-#   docker compose up --build      →  http://localhost:8080  (shop: /shop)
+#   docker compose up --build      →  http://localhost:3005  (shop: /shop)
+#   Different port: APP_PORT=4000 docker compose up --build
 # Secrets come from .env (git-ignored). Values below are local-only defaults.
 name: stocksync
 
@@ -40,7 +41,7 @@ services:
     environment:
       NODE_ENV: production
       PORT: 8080
-      PUBLIC_BASE_URL: http://localhost:8080
+      PUBLIC_BASE_URL: http://localhost:${APP_PORT:-3005}
       DATABASE_URL: postgres://stocksync:${POSTGRES_PASSWORD:-stocksync-local}@db:5432/inventory
       DATABASE_SSL: "false"
       JWT_SECRET: ${JWT_SECRET:-local-dev-only-jwt-secret-change-me-0123456789}
@@ -50,7 +51,7 @@ services:
       # Azurite's well-known public development key — not a secret.
       AZURE_STORAGE_CONNECTION_STRING: DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://127.0.0.1:10000/devstoreaccount1;
     ports:
-      - "8080:8080"
+      - "${APP_PORT:-3005}:8080"
     restart: unless-stopped
 
   # One-shot: create the public-read image container and CORS rule in Azurite (reached by service name).
@@ -61,6 +62,8 @@ services:
         condition: service_started
     restart: "no"
     working_dir: /app/src/api
+    environment:
+      APP_ORIGIN: http://localhost:${APP_PORT:-3005}
     command:
       - node
       - -e
@@ -69,7 +72,7 @@ services:
         const cs = 'DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;';
         const svc = BlobServiceClient.fromConnectionString(cs);
         (async () => {
-          await svc.setProperties({ cors: [{ allowedOrigins: 'http://localhost:8080', allowedMethods: 'PUT,GET,HEAD,OPTIONS', allowedHeaders: '*', exposedHeaders: '*', maxAgeInSeconds: 3600 }] });
+          await svc.setProperties({ cors: [{ allowedOrigins: process.env.APP_ORIGIN, allowedMethods: 'PUT,GET,HEAD,OPTIONS', allowedHeaders: '*', exposedHeaders: '*', maxAgeInSeconds: 3600 }] });
           await svc.getContainerClient('product-images').createIfNotExists({ access: 'blob' });
           console.log('azurite ready');
         })().catch((e) => { console.error(e); process.exit(1); });

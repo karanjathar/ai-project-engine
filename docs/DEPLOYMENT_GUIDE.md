@@ -167,7 +167,7 @@ Send `help`, `catalog`, `stock <SKU>`, `price <SKU>`, `order <SKU> 2` and `statu
 ## 6. Local development
 ```bash
 cp .env.example .env               # fill in values; .env is git-ignored
-docker compose up --build          # app + PostgreSQL + Azurite (Blob emulator) → http://localhost:8080
+docker compose up --build          # app + PostgreSQL + Azurite (Blob emulator) → http://localhost:3005 (override with APP_PORT=…)
 ```
 Or without Docker: run PostgreSQL locally, then `npm install && npm run dev` (API on :8080, Vite on :5173 with proxy).
 Quality gate (same as CI): `npm run typecheck && npm run lint && npm test`. Tests need PostgreSQL at `TEST_DATABASE_URL` (default `postgres://postgres@localhost:5432/inventory_test`).
