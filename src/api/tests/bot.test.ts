@@ -50,8 +50,17 @@ describe('bot commands', () => {
     expect(await t.c.bot.handle(wa('order tee 0'))).toContain('order <SKU> <qty>');
   });
 
+  it('combines a multi-line cart message (from the shop WhatsApp button) into one order', async () => {
+    await t.c.stock.receive({ productId: ids.mug.id, warehouseId: ids.main.id, quantity: 5 }, null);
+    const reply = await t.c.bot.handle(wa("Hi Corner Shop! I'd like to order:\norder TEE 1\norder MUG 2", '15557770000'));
+    expect(reply).toMatch(/Order #\d+ received: 1 × T-Shirt, 2 × Mug = ₹31\.00/);
+    const orders = await t.c.orders.list({});
+    expect(orders[0]!.items.map((i) => [i.sku, i.quantity])).toEqual([['MUG', 2], ['TEE', 1]]);
+    expect(await t.c.bot.handle(wa('order TEE 1\norder NOPE 1'))).toMatch(/couldn't find.*NOPE/i);
+  });
+
   it('status only reveals the customer’s own orders', async () => {
-    const [order] = await t.c.orders.list({ status: 'PENDING' });
+    const order = (await t.c.orders.list({ status: 'PENDING' })).at(-1); // oldest: placed by 15551230000
     expect(await t.c.bot.handle(wa(`status ${order!.number}`))).toContain('PENDING');
     expect(await t.c.bot.handle(wa(`status ${order!.number}`, '19990000000'))).toMatch(/couldn't find order/i);
   });

@@ -24,8 +24,16 @@ export class BotService {
 
   async handle(msg: InboundMessage): Promise<string> {
     const s = await this.settings.get();
-    const [cmd = '', ...args] = msg.text.trim().split(/\s+/);
     const money = (c: number) => formatMoney(c, s.currency);
+
+    // Multi-line cart messages (e.g. from the shop's "Order on WhatsApp" button): one order for all "order" lines.
+    const lines = msg.text.split('\n').map((l) => l.trim()).filter(Boolean);
+    const orderLines = lines.filter((l) => /^order\s/i.test(l));
+    if (lines.length > 1 && orderLines.length > 0) {
+      return this.placeOrder(msg, orderLines.map((l) => l.split(/\s+/).slice(1)), money);
+    }
+
+    const [cmd = '', ...args] = msg.text.trim().split(/\s+/);
 
     switch (cmd.toLowerCase()) {
       case 'stock': {
@@ -45,21 +53,8 @@ export class BotService {
         return [`${s.businessName} catalog:`, ...list.map((p) => `• ${p.sku} — ${p.name} — ${money(p.priceCents)}`),
           '', 'Reply "order <SKU> <qty>" to order.'].join('\n');
       }
-      case 'order': {
-        const qty = Number(args[1]);
-        if (!args[0] || !Number.isInteger(qty) || qty < 1 || qty > 1000) return 'To order, send: order <SKU> <qty>  (e.g. "order TEE 2")';
-        const p = await this.products.getBySku(args[0]);
-        if (!p || !p.isActive) return this.unknownSku(args[0]);
-        if (p.totalQuantity < qty) return `Sorry, we only have ${p.totalQuantity} ${p.unit} of ${p.name} right now.`;
-        const customer = await this.customers.findOrCreateByChannel(msg.channel, msg.from, msg.senderName);
-        try {
-          const order = await this.orders.create({ customerId: customer.id, channel: msg.channel, items: [{ productId: p.id, quantity: qty }] });
-          return `✅ Order #${order.number} received: ${qty} × ${p.name} = ${money(order.totalCents)}. We'll confirm shortly. Reply "status ${order.number}" any time.`;
-        } catch (err) {
-          if (err instanceof AppError) return `Sorry, we couldn't place that order: ${err.message}`;
-          throw err;
-        }
-      }
+      case 'order':
+        return this.placeOrder(msg, [args], money);
       case 'status': {
         const n = Number(args[0]?.replace('#', ''));
         const order = Number.isInteger(n) && n > 0 ? await this.orders.getByNumber(n) : undefined;
@@ -76,6 +71,30 @@ export class BotService {
           '• order <SKU> <qty> — place an order',
           '• status <order#> — track your order',
         ].join('\n');
+    }
+  }
+
+  private async placeOrder(msg: InboundMessage, lines: string[][], money: (c: number) => string): Promise<string> {
+    const usage = 'To order, send: order <SKU> <qty>  (e.g. "order TEE 2")';
+    const items: { productId: string; quantity: number; label: string }[] = [];
+    for (const [sku, rawQty] of lines.slice(0, 20)) {
+      const qty = Number(rawQty);
+      if (!sku || !Number.isInteger(qty) || qty < 1 || qty > 1000) return usage;
+      const p = await this.products.getBySku(sku);
+      if (!p || !p.isActive) return this.unknownSku(sku);
+      if (p.totalQuantity < qty) return `Sorry, we only have ${p.totalQuantity} ${p.unit} of ${p.name} right now.`;
+      items.push({ productId: p.id, quantity: qty, label: `${qty} × ${p.name}` });
+    }
+    if (!items.length) return usage;
+    const customer = await this.customers.findOrCreateByChannel(msg.channel, msg.from, msg.senderName);
+    try {
+      const order = await this.orders.create({
+        customerId: customer.id, channel: msg.channel, items: items.map(({ productId, quantity }) => ({ productId, quantity })),
+      });
+      return `✅ Order #${order.number} received: ${items.map((i) => i.label).join(', ')} = ${money(order.totalCents)}. We'll confirm shortly. Reply "status ${order.number}" any time.`;
+    } catch (err) {
+      if (err instanceof AppError) return `Sorry, we couldn't place that order: ${err.message}`;
+      throw err;
     }
   }
 
