@@ -89,3 +89,76 @@ describe('menu & browsing (T31)', () => {
     expect((await t.c.bot.handle({ channel: 'whatsapp', from: '919800000001', text: 'stock tee' })).text).toContain('Red T-Shirt (TEE): 3 pcs available') // carts don't reserve stock;
   });
 });
+
+describe('cart & checkout (T32)', () => {
+  const buyer = '919800000002';
+  const tapAs = (a: string) => tap(a, buyer);
+
+  it('empty cart and empty checkout say so with a Browse button', async () => {
+    for (const a of ['cart', 'checkout', 'pay:cod']) {
+      const r = await tapAs(a);
+      expect(r.text).toMatch(/cart is empty/i);
+      expect(r.buttons?.[0]!.id).toBe('catalog');
+    }
+  });
+
+  it('cart shows lines and total with next-step buttons', async () => {
+    await tapAs(`qty:${id.tee}:2`);
+    await tapAs(`qty:${id.mug}:1`);
+    const r = await tapAs('cart');
+    expect(r.text).toContain('2 × Red T-Shirt — ₹998.00');
+    expect(r.text).toContain('1 × Mug — ₹299.00');
+    expect(r.text).toContain('Total: ₹1,297.00');
+    expect(r.buttons?.map((b) => b.id)).toEqual(['checkout', 'catalog', 'cart:clear']);
+  });
+
+  it('checkout offers cash on delivery only while online payments are unavailable', async () => {
+    const r = await tapAs('checkout');
+    expect(r.text).toContain('Total: ₹1,297.00');
+    expect(r.buttons?.map((b) => b.id)).toEqual(['pay:cod', 'cart']); // 'cart' = Edit cart
+    expect(r.buttons?.[0]!.title).toBe('💵 Cash on delivery');
+    expect((await tapAs('pay:online')).text).toMatch(/online payment is not available/i);
+  });
+
+  it('pay:cod places a COD order from the cart and clears it', async () => {
+    const r = await tapAs('pay:cod');
+    expect(r.text).toMatch(/Order #\d+ placed/);
+    expect(r.text).toContain('Cash on delivery');
+    expect(r.text).toContain('₹1,297.00');
+    expect(r.buttons?.map((b) => b.id)).toEqual(['orders', 'catalog']);
+    const [order] = await t.c.orders.list({ status: 'PENDING' });
+    expect(order).toMatchObject({ channel: 'whatsapp', paymentMethod: 'COD', totalCents: 129700, customerName: 'Meera' });
+    expect(order!.items.map((i) => [i.sku, i.quantity])).toEqual([['MUG', 1], ['TEE', 2]]);
+    expect((await tapAs('cart')).text).toMatch(/cart is empty/i);
+  });
+
+  it('online checkout uses the injected payment options and creates an ONLINE order', async () => {
+    t.c.chatFlow.setPaymentOptions({
+      available: async () => ({ online: true, cod: false }),
+      onlineCheckout: async (order) => ({ text: `PAY-LINK for #${order.number}` }),
+    });
+    try {
+      await tapAs(`qty:${id.mug}:2`);
+      expect((await tapAs('checkout')).buttons?.map((b) => b.id)).toEqual(['pay:online', 'cart']);
+      expect((await tapAs('pay:cod')).text).toMatch(/cash on delivery is not available/i);
+      const r = await tapAs('pay:online');
+      expect(r.text).toMatch(/^PAY-LINK for #\d+$/);
+      const [order] = await t.c.orders.list({ status: 'PENDING' });
+      expect(order).toMatchObject({ paymentMethod: 'ONLINE', totalCents: 59800 });
+    } finally {
+      t.c.chatFlow.setPaymentOptions(undefined);
+    }
+  });
+
+  it('clear empties the cart; checkout reports items that changed since they were added', async () => {
+    await tapAs(`qty:${id.tee}:1`);
+    expect((await tapAs('cart:clear')).text).toMatch(/cart cleared/i);
+    expect((await tapAs('cart')).text).toMatch(/cart is empty/i);
+    await tapAs(`qty:${id.mug}:3`);
+    await request(t.app).patch(`/api/products/${id.mug}`).set({ authorization: `Bearer ${await t.token('staff')}` }).send({ isActive: false });
+    const r = await tapAs('checkout');
+    expect(r.text).toMatch(/some items changed/i);
+    expect(r.text).toMatch(/cart is empty/i);
+    await request(t.app).patch(`/api/products/${id.mug}`).set({ authorization: `Bearer ${await t.token('staff')}` }).send({ isActive: true });
+  });
+});

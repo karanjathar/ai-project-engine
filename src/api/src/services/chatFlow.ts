@@ -1,6 +1,7 @@
 import type { BotReply, ReplyListRow } from '../channels/reply.js';
 import { AppError } from '../domain/errors.js';
-import type { InboundMessage, Product } from '../domain/types.js';
+import type { InboundMessage, Order, PaymentMethod, Product } from '../domain/types.js';
+import type { OrdersService } from './orders.js';
 import type { ChatCartsRepo } from '../repositories/chatCarts.js';
 import type { CustomersRepo } from '../repositories/customers.js';
 import type { ProductsRepo } from '../repositories/products.js';
@@ -14,6 +15,17 @@ const PAGE = 9;
 const QTY_CHOICES = [1, 2, 3, 4, 5, 10];
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
+/** Payment port for checkout. Phase 6 default: cash on delivery only; Razorpay plugs in via setPaymentOptions (T35/T37). */
+export interface PaymentOptions {
+  available(): Promise<{ online: boolean; cod: boolean }>;
+  /** Reply for a freshly created ONLINE order (e.g. a pay-link button). */
+  onlineCheckout(order: Order, msg: InboundMessage): Promise<BotReply>;
+}
+const CASH_ONLY: PaymentOptions = {
+  available: async () => ({ online: false, cod: true }),
+  onlineCheckout: async (order) => ({ text: `Order #${order.number} created. We'll send your payment link shortly.` }),
+};
+
 /** Tap-to-order conversation (docs/3_SCHEMAS.md §3.12). Returns undefined for actions it doesn't own. */
 export class ChatFlow {
   constructor(
@@ -22,7 +34,14 @@ export class ChatFlow {
     private readonly customers: CustomersRepo,
     private readonly carts: ChatCartsRepo,
     private readonly settings: SettingsService,
+    private readonly orders: OrdersService,
   ) {}
+
+  private payments: PaymentOptions = CASH_ONLY;
+
+  setPaymentOptions(options: PaymentOptions | undefined): void {
+    this.payments = options ?? CASH_ONLY;
+  }
 
   async handle(msg: InboundMessage): Promise<BotReply | undefined> {
     const action = msg.action ?? '';
@@ -37,6 +56,11 @@ export class ChatFlow {
       if (m) return await this.product(m[1]!, money);
       m = new RegExp(`^qty:(${UUID}):(\\d{1,3})$`).exec(action);
       if (m) return await this.addToCart(msg, m[1]!, Number(m[2]), money);
+      if (action === 'cart') return await this.showCart(msg, money);
+      if (action === 'cart:clear') return await this.clearCart(msg);
+      if (action === 'checkout') return await this.checkout(msg, money);
+      if (action === 'pay:cod') return await this.placeOrder(msg, 'COD', money);
+      if (action === 'pay:online') return await this.placeOrder(msg, 'ONLINE', money);
       if (/^(prod|qty|cat):/.test(action)) return this.sorry('That option is no longer valid.');
       return undefined;
     } catch (err) {
@@ -113,6 +137,71 @@ export class ChatFlow {
     return {
       text: lines.join('\n'),
       buttons: [{ id: 'checkout', title: '🧾 Checkout' }, { id: 'catalog', title: '🛍 Keep shopping' }, { id: 'cart:clear', title: '🗑 Clear cart' }],
+    };
+  }
+
+  private async cartOf(msg: InboundMessage) {
+    const customer = await this.customers.findOrCreateByChannel(msg.channel, msg.from, msg.senderName);
+    return { customer, cart: await this.carts.get(customer.id) };
+  }
+
+  private cartLines(cart: Awaited<ReturnType<ChatCartsRepo['get']>>, money: (c: number) => string): string {
+    return [
+      ...cart.lines.map((l) => `${l.quantity} × ${l.name} — ${money(l.quantity * l.unitPriceCents)}`),
+      `*Total: ${money(cart.totalCents)}*`,
+    ].join('\n');
+  }
+
+  private emptyCart(adjusted: boolean): BotReply {
+    const note = adjusted ? 'Some items changed since you added them (no longer available). ' : '';
+    return { text: `${note}Your cart is empty.`, buttons: [{ id: 'catalog', title: '🛍 Browse' }, { id: 'menu', title: '🏠 Menu' }] };
+  }
+
+  private async showCart(msg: InboundMessage, money: (c: number) => string): Promise<BotReply> {
+    const { cart } = await this.cartOf(msg);
+    if (!cart.lines.length) return this.emptyCart(cart.adjusted);
+    const note = cart.adjusted ? '⚠️ Some items changed since you added them (stock or availability).\n' : '';
+    return {
+      text: `${note}🛒 *Your cart*\n${this.cartLines(cart, money)}`,
+      buttons: [{ id: 'checkout', title: '🧾 Checkout' }, { id: 'catalog', title: '🛍 Keep shopping' }, { id: 'cart:clear', title: '🗑 Clear cart' }],
+    };
+  }
+
+  private async clearCart(msg: InboundMessage): Promise<BotReply> {
+    const customer = await this.customers.findOrCreateByChannel(msg.channel, msg.from, msg.senderName);
+    await this.carts.clear(customer.id);
+    return { text: '🗑 Cart cleared.', buttons: [{ id: 'catalog', title: '🛍 Browse' }] };
+  }
+
+  private async checkout(msg: InboundMessage, money: (c: number) => string): Promise<BotReply> {
+    const { cart } = await this.cartOf(msg);
+    if (!cart.lines.length) return this.emptyCart(cart.adjusted);
+    const { online, cod } = await this.payments.available();
+    if (!online && !cod) return this.sorry('ordering is paused right now. Please try again later.');
+    const note = cart.adjusted ? '⚠️ Some items changed since you added them — please check:\n' : '';
+    const buttons = [
+      ...(online ? [{ id: 'pay:online', title: '💳 Pay online' }] : []),
+      ...(cod ? [{ id: 'pay:cod', title: '💵 Cash on delivery' }] : []),
+      { id: 'cart', title: '✏️ Edit cart' },
+    ];
+    return { text: `${note}🧾 *Checkout*\n${this.cartLines(cart, money)}\n\nHow would you like to pay?`, buttons };
+  }
+
+  private async placeOrder(msg: InboundMessage, method: PaymentMethod, money: (c: number) => string): Promise<BotReply> {
+    const { customer, cart } = await this.cartOf(msg);
+    if (!cart.lines.length) return this.emptyCart(cart.adjusted);
+    const { online, cod } = await this.payments.available();
+    if (method === 'ONLINE' && !online) return this.sorry('online payment is not available right now. You can choose Cash on delivery at checkout.');
+    if (method === 'COD' && !cod) return this.sorry('cash on delivery is not available. Please pay online at checkout.');
+    const order = await this.orders.create({
+      customerId: customer.id, channel: msg.channel, paymentMethod: method,
+      items: cart.lines.map((l) => ({ productId: l.productId, quantity: l.quantity })),
+    });
+    await this.carts.clear(customer.id);
+    if (method === 'ONLINE') return this.payments.onlineCheckout(order, msg);
+    return {
+      text: `✅ Order #${order.number} placed — Cash on delivery.\nTotal: ${money(order.totalCents)}\nWe'll confirm shortly.`,
+      buttons: [{ id: 'orders', title: '📦 My orders' }, { id: 'catalog', title: '🛍 Keep shopping' }],
     };
   }
 

@@ -69,7 +69,7 @@ export function createContainer(opts: { env: Env; pool: pg.Pool } & ContainerOve
   const notifier = new OrderNotifier(customers, settings, messenger);
   orders.onStatusChange((order, previous) => notifier.onStatusChange(order, previous));
   const carts = new ChatCartsRepo(pool);
-  const chatFlow = new ChatFlow(repos.products, repos.categories, customers, carts, settings);
+  const chatFlow = new ChatFlow(repos.products, repos.categories, customers, carts, settings, orders);
   const bot = new BotService(repos.products, orders, customers, settings, chatFlow);
   const inbox = new InboxService(messages, events, bot, messenger, logger);
   const images = new ImageStorage(env.AZURE_STORAGE_CONNECTION_STRING, env.AZURE_STORAGE_CONTAINER);
