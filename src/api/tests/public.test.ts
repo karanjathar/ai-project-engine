@@ -21,6 +21,11 @@ afterAll(async () => { await t.close(); });
 const auth = (tok: string) => ({ authorization: `Bearer ${tok}` });
 
 describe('image upload SAS', () => {
+  it('reports whether uploads are configured', async () => {
+    const res = await request(t.app).get('/api/uploads/status').set(auth(staff));
+    expect(res.body).toEqual({ configured: true });
+  });
+
   it('issues a short-lived write-only SAS for images', async () => {
     const res = await request(t.app).post('/api/uploads/image-sas').set(auth(staff)).send({ filename: 'red tee.PNG', contentType: 'image/png' });
     expect(res.status).toBe(200);

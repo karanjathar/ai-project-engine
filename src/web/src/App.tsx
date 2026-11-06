@@ -5,6 +5,7 @@ import { SettingsProvider } from './settings';
 import { Layout } from './components/Layout';
 import { Login } from './pages/Login';
 import { Dashboard } from './pages/Dashboard';
+import { Products } from './pages/Products';
 import type { Role } from './api/types';
 
 function RequireAuth({ children, role = 'viewer' }: { children: ReactNode; role?: Role }) {
@@ -22,6 +23,7 @@ export function App() {
       <Route path="/login" element={<Login />} />
       <Route element={<RequireAuth><SettingsProvider><Layout /></SettingsProvider></RequireAuth>}>
         <Route index element={<Dashboard />} />
+        <Route path="products" element={<Products />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

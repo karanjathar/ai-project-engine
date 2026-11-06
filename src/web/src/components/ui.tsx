@@ -28,11 +28,13 @@ export function Card({ title, children, className = '' }: { title?: string; chil
 
 export function Field({ label, children, hint }: { label: string; children: ReactNode; hint?: string }) {
   return (
-    <label className="field">
-      <span>{label}</span>
-      {children}
+    <div className="field">
+      <label>
+        <span>{label}</span>
+        {children}
+      </label>
       {hint && <small>{hint}</small>}
-    </label>
+    </div>
   );
 }
 

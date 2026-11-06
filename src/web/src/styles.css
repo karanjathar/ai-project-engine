@@ -85,8 +85,8 @@ button.small { padding: 4px 10px; font-size: .85rem; }
 .banner.error { background: color-mix(in srgb, var(--bad) 12%, transparent); color: var(--bad); }
 .banner.ok { background: color-mix(in srgb, var(--good) 12%, transparent); color: var(--good); }
 
-.field { display: grid; gap: 4px; }
-.field > span { font-size: .85rem; font-weight: 600; color: var(--muted); }
+.field, .field > label { display: grid; gap: 4px; }
+.field span { font-size: .85rem; font-weight: 600; color: var(--muted); }
 .field small { color: var(--muted); }
 
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; box-shadow: var(--shadow); }

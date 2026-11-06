@@ -53,6 +53,7 @@ const sasSchema = z.object({ filename: z.string().trim().min(1).max(200), conten
 
 export function uploadRoutes(c: Container): Router {
   const r = Router();
+  r.get('/status', (_req, res) => { res.json({ configured: c.images.isConfigured() }); });
   r.post('/image-sas', requireRole('staff'), async (req, res) => {
     const { contentType } = parse(sasSchema, req.body);
     res.json(await c.images.createUploadSas(contentType));
