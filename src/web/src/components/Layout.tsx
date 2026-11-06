@@ -10,7 +10,7 @@ const NAV: { to: string; label: string; icon: string; role: Role }[] = [
   { to: '/inventory', label: 'Inventory', icon: '📦', role: 'viewer' },
   { to: '/movements', label: 'Movements', icon: '🔁', role: 'viewer' },
   { to: '/orders', label: 'Orders', icon: '🧾', role: 'viewer' },
-  { to: '/inbox', label: 'Inbox', icon: '💬', role: 'viewer' },
+  { to: '/inbox', label: 'Inbox', icon: '💬', role: 'staff' },
   { to: '/customers', label: 'Customers', icon: '👥', role: 'viewer' },
   { to: '/suppliers', label: 'Suppliers', icon: '🚚', role: 'viewer' },
   { to: '/warehouses', label: 'Warehouses', icon: '🏬', role: 'viewer' },
@@ -40,7 +40,7 @@ export function Layout() {
         <header className="topbar">
           <button className="ghost menu" aria-label="Toggle menu" onClick={() => setOpen((o) => !o)}>☰</button>
           <div className="spacer" />
-          <span className="muted small">{user?.name} · {user?.role}</span>
+          <NavLink className="muted small" to="/account">{user?.name} · {user?.role}</NavLink>
           <button className="ghost" onClick={logout}>Sign out</button>
         </header>
         <main><Outlet /></main>

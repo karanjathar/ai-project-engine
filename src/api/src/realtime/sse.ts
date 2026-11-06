@@ -17,7 +17,11 @@ export function sseHandler(bus: EventBus): RequestHandler {
       'X-Accel-Buffering': 'no',
     });
     res.write('retry: 5000\n: connected\n\n');
-    const off = bus.subscribe((e) => { res.write(`event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`); });
+    const canSeeChats = req.user?.role === 'staff' || req.user?.role === 'admin';
+    const off = bus.subscribe((e) => {
+      if (e.type === 'message.received' && !canSeeChats) return; // chat content is staff-only
+      res.write(`event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`);
+    });
     const beat = setInterval(() => res.write(': ping\n\n'), HEARTBEAT_MS);
     req.on('close', () => { clearInterval(beat); off(); });
   };

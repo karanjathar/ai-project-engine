@@ -20,6 +20,12 @@ export function authRoutes(c: Container): Router {
     const { email, password } = parse(loginSchema, req.body);
     res.json(await c.auth.login(email, password));
   });
+  const pwSchema = z.object({ currentPassword: z.string().min(1).max(200), newPassword: z.string().min(8).max(200) });
+  r.post('/password', loginLimiter, requireAuth(c.auth), async (req, res) => {
+    const { currentPassword, newPassword } = parse(pwSchema, req.body);
+    await c.auth.changePassword(currentUser(req).email, currentPassword, newPassword);
+    res.status(204).end();
+  });
   r.get('/me', requireAuth(c.auth), async (req, res) => {
     const user = await c.repos.users.findById(currentUser(req).id);
     if (!user) throw new NotFoundError('User');

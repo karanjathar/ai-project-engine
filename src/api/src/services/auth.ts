@@ -32,6 +32,12 @@ export class AuthService {
     return user;
   }
 
+  async changePassword(email: string, currentPassword: string, newPassword: string): Promise<void> {
+    const found = await this.users.findByEmailWithHash(email);
+    if (!found || !(await bcrypt.compare(currentPassword, found.passwordHash))) throw new UnauthorizedError('Current password is incorrect');
+    await this.users.update(found.id, { passwordHash: await bcrypt.hash(newPassword, this.rounds) });
+  }
+
   async bootstrapAdmin(email: string | undefined, password: string | undefined): Promise<User | undefined> {
     if (!email || !password) return undefined;
     if ((await this.users.count()) > 0) return undefined;

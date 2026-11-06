@@ -12,7 +12,8 @@ const sendSchema = z.object({ channel, to: z.string().trim().min(1).max(100), te
 
 export function messageRoutes(c: Container): Router {
   const r = Router();
-  r.get('/', async (req, res) => { res.json(await c.messages.list(parse(listSchema, req.query))); });
+  // Customer chat content is personal data: staff and admins only.
+  r.get('/', requireRole('staff'), async (req, res) => { res.json(await c.messages.list(parse(listSchema, req.query))); });
   r.post('/send', requireRole('staff'), async (req, res) => {
     const m = parse(sendSchema, req.body);
     try {

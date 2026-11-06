@@ -7,6 +7,7 @@ import rateLimit from 'express-rate-limit';
 import type { Container } from '../container.js';
 import { errorHandler, notFoundHandler } from './middleware/errors.js';
 import { requireAuth } from './middleware/auth.js';
+import { requestLog } from './middleware/requestLog.js';
 import { authRoutes } from './routes/auth.js';
 import { userRoutes } from './routes/users.js';
 import { stockRoutes } from './routes/stock.js';
@@ -41,6 +42,7 @@ export function createApp(c: Container, opts: AppOptions = {}): Express {
       },
     }),
   );
+  app.use(requestLog(logger));
   app.use(cors({ origin: env.CORS_ORIGINS, credentials: false }));
   app.use(
     express.json({

@@ -23,5 +23,10 @@
     "globals": "^17.14.0",
     "typescript-eslint": "^8.72.1"
   },
-  "type": "module"
+  "type": "module",
+  "overrides": {
+    "@typescript-eslint/typescript-estree": {
+      "minimatch": "^11.0.5"
+    }
+  }
 }
