@@ -3,7 +3,7 @@ import { withTx } from '../db/tx.js';
 import { InsufficientStockError, NotFoundError, ValidationError } from '../domain/errors.js';
 import type { MovementType, StockLevel, StockMovement } from '../domain/types.js';
 
-export interface StockChange { productId: string; warehouseId: string; quantity: number }
+export interface StockChange { productId: string; warehouseId: string; quantity: number; delta: number }
 export type StockObserver = (changes: StockChange[]) => void | Promise<void>;
 
 export interface DeltaInput {
@@ -158,6 +158,6 @@ export class StockService {
       `INSERT INTO stock_movements (product_id, warehouse_id, type, quantity_delta, balance_after, reason, reference, user_id, created_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, clock_timestamp())`,
       [d.productId, d.warehouseId, d.type, d.delta, rows[0].quantity, d.reason ?? '', d.reference ?? null, d.userId]);
-    return { productId: d.productId, warehouseId: d.warehouseId, quantity: rows[0].quantity };
+    return { productId: d.productId, warehouseId: d.warehouseId, quantity: rows[0].quantity, delta: d.delta };
   }
 }

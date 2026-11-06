@@ -15,7 +15,7 @@ Each task is TDD: failing test → implementation → `npm run typecheck && npm 
 - [x] T09 Settings service (dynamic, defaults merged) + `/settings`
 - [x] T10 Realtime event bus + SSE `/events`; stock events emitted
 - [x] T11 Orders: create / confirm (atomic stock deduction) / fulfill / cancel (restock)
-- [ ] T12 Dashboard stats + low-stock alert service (event + channel notify)
+- [x] T12 Dashboard stats + low-stock alert service (event + channel notify)
 
 ## Integrations
 - [ ] T13 Channel adapters (WhatsApp, Messenger, Instagram, Telegram) + ChannelHub + message log

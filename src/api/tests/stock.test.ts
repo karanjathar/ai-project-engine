@@ -89,6 +89,6 @@ describe('stock operations', () => {
     const seen: unknown[] = [];
     t.c.stock.onChanged((changes) => { seen.push(...changes); });
     await t.c.stock.receive({ productId: ids.mug.id, warehouseId: ids.shop.id, quantity: 3 }, null);
-    expect(seen).toEqual([{ productId: ids.mug.id, warehouseId: ids.shop.id, quantity: 3 }]);
+    expect(seen).toEqual([{ productId: ids.mug.id, warehouseId: ids.shop.id, quantity: 3, delta: 3 }]);
   });
 });

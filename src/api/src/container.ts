@@ -11,10 +11,14 @@ import { StockService } from './services/stock.js';
 import { SettingsService } from './services/settings.js';
 import { EventBus } from './realtime/bus.js';
 import { OrdersService } from './services/orders.js';
+import { AlertService } from './services/alerts.js';
+import { noopMessenger, type Messenger } from './services/messenger.js';
 
 export interface ContainerOverrides {
   logger?: Logger;
   fetch?: typeof fetch;
+  /** Replaces the channel hub for outbound messages (tests). */
+  messenger?: Messenger;
 }
 
 export function createContainer(opts: { env: Env; pool: pg.Pool } & ContainerOverrides) {
@@ -40,7 +44,11 @@ export function createContainer(opts: { env: Env; pool: pg.Pool } & ContainerOve
   const customers = new CustomersRepo(pool);
   const settings = new SettingsService(pool);
   const orders = new OrdersService(pool, stock, settings, events, (err) => logger.error({ err }, 'order observer failed'));
-  return { env, pool, logger, repos, auth, stock, customers, settings, events, orders };
+  let messenger: Messenger = opts.messenger ?? noopMessenger;
+  const alerts = new AlertService(repos.products, settings, events, () => messenger, logger);
+  stock.onChanged((changes) => alerts.onStockChanged(changes));
+  const setMessenger = (m: Messenger) => { messenger = opts.messenger ?? m; };
+  return { env, pool, logger, repos, auth, stock, customers, settings, events, orders, alerts, setMessenger, messenger: () => messenger };
 }
 
 export type Container = ReturnType<typeof createContainer>;
