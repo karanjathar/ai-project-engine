@@ -15,20 +15,45 @@ export class ChatCartsRepo {
   /** Current cart, priced live; inactive/deleted products are dropped and quantities re-capped (persisted). */
   async get(customerId: string): Promise<CartView> {
     return withTx(this.pool, async (c) => {
-      const items = await this.lock(c, customerId);
-      const products = await this.products(c, items.map((i) => i.productId));
-      const lines: CartLine[] = [];
-      let adjusted = false;
-      for (const item of items) {
-        const p = products.get(item.productId);
-        const quantity = p && p.isActive ? Math.min(item.quantity, p.available) : 0;
-        if (quantity !== item.quantity) adjusted = true;
-        if (!p || quantity <= 0) continue;
-        lines.push({ productId: p.id, sku: p.sku, name: p.name, unit: p.unit, unitPriceCents: p.priceCents, quantity, available: p.available });
-      }
-      if (adjusted) await this.save(c, customerId, lines.map((l) => ({ productId: l.productId, quantity: l.quantity })));
-      return { lines, totalCents: lines.reduce((s, l) => s + l.unitPriceCents * l.quantity, 0), adjusted };
+      const view = await this.view(c, await this.lock(c, customerId));
+      if (view.adjusted) await this.save(c, customerId, view.lines.map((l) => ({ productId: l.productId, quantity: l.quantity })));
+      return view;
     });
+  }
+
+  /**
+   * Atomically removes and returns the cart (checkout). Concurrent callers serialise on the row:
+   * exactly one receives the items, the others get an empty cart — so one cart can never become two orders.
+   */
+  async take(customerId: string): Promise<CartView> {
+    return withTx(this.pool, async (c) => {
+      const { rows } = await c.query<{ items: CartItem[] }>('DELETE FROM chat_carts WHERE customer_id = $1 RETURNING items', [customerId]);
+      return this.view(c, rows[0]?.items ?? []);
+    });
+  }
+
+  /** Puts taken items back (e.g. order creation failed), merged with anything added meanwhile. */
+  async restore(customerId: string, items: CartItem[]): Promise<void> {
+    await withTx(this.pool, async (c) => {
+      const current = await this.lock(c, customerId);
+      const merged = new Map(current.map((i) => [i.productId, i.quantity]));
+      for (const i of items) merged.set(i.productId, (merged.get(i.productId) ?? 0) + i.quantity);
+      await this.save(c, customerId, [...merged].map(([productId, quantity]) => ({ productId, quantity })));
+    });
+  }
+
+  private async view(c: pg.PoolClient, items: CartItem[]): Promise<CartView> {
+    const products = await this.products(c, items.map((i) => i.productId));
+    const lines: CartLine[] = [];
+    let adjusted = false;
+    for (const item of items) {
+      const p = products.get(item.productId);
+      const quantity = p && p.isActive ? Math.min(item.quantity, p.available) : 0;
+      if (quantity !== item.quantity) adjusted = true;
+      if (!p || quantity <= 0) continue;
+      lines.push({ productId: p.id, sku: p.sku, name: p.name, unit: p.unit, unitPriceCents: p.priceCents, quantity, available: p.available });
+    }
+    return { lines, totalCents: lines.reduce((s, l) => s + l.unitPriceCents * l.quantity, 0), adjusted };
   }
 
   /** Adds up to `quantity`, capped at available stock. */

@@ -191,16 +191,21 @@ export class ChatFlow {
   }
 
   private async placeOrder(msg: InboundMessage, method: PaymentMethod, money: (c: number) => string): Promise<BotReply> {
-    const { customer, cart } = await this.cartOf(msg);
-    if (!cart.lines.length) return this.emptyCart(cart.adjusted);
+    const customer = await this.customers.findOrCreateByChannel(msg.channel, msg.from, msg.senderName);
     const { online, cod } = await this.payments.available();
     if (method === 'ONLINE' && !online) return this.sorry('online payment is not available right now. You can choose Cash on delivery at checkout.');
     if (method === 'COD' && !cod) return this.sorry('cash on delivery is not available. Please pay online at checkout.');
-    const order = await this.orders.create({
-      customerId: customer.id, channel: msg.channel, paymentMethod: method,
-      items: cart.lines.map((l) => ({ productId: l.productId, quantity: l.quantity })),
-    });
-    await this.carts.clear(customer.id);
+    // Take the cart atomically: duplicate/concurrent taps find it empty instead of creating a second order (T46).
+    const cart = await this.carts.take(customer.id);
+    if (!cart.lines.length) return this.emptyCart(cart.adjusted);
+    const items = cart.lines.map((l) => ({ productId: l.productId, quantity: l.quantity }));
+    let order: Order;
+    try {
+      order = await this.orders.create({ customerId: customer.id, channel: msg.channel, paymentMethod: method, items });
+    } catch (err) {
+      await this.carts.restore(customer.id, items);
+      throw err;
+    }
     if (method === 'ONLINE') return this.payments.onlineCheckout(order, msg);
     return {
       text: `✅ Order #${order.number} placed — Cash on delivery.\nTotal: ${money(order.totalCents)}\nWe'll confirm shortly.`,

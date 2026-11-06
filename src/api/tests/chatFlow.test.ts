@@ -1,4 +1,5 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { ConflictError } from '../src/domain/errors.js';
 import request from 'supertest';
 import { buildTestApp, type TestApp } from './helpers/app.js';
 import type { InboundMessage } from '../src/domain/types.js';
@@ -206,5 +207,36 @@ describe('my orders (T33)', () => {
     const r = await t.c.bot.handle({ channel: 'whatsapp', from: me, text: 'hi' });
     expect(r.buttons?.map((b) => b.id)).toEqual(['catalog', 'cart', 'orders']);
     expect(r.text).toContain('stock <SKU>'); // text commands still documented
+  });
+});
+
+describe('checkout is idempotent under concurrent taps (T46)', () => {
+  const who = '919800000046';
+  const taps = (action: string, n: number) => Array.from({ length: n }, (_, i) =>
+    t.c.inbox.receive({ channel: 'whatsapp', from: who, text: action, action, externalId: `wamid.T46.${action}.${i}.${Math.random()}` }));
+  const myOrders = async () => (await t.c.orders.list({})).filter((o) => o.items.length && o.customerId === customerId);
+  let customerId = '';
+
+  it('five simultaneous pay:cod taps create exactly one order', async () => {
+    customerId = (await t.c.customers.findOrCreateByChannel('whatsapp', who, 'Racer')).id;
+    await tap(`qty:${id.mug}:2`, who);
+    await Promise.all(taps('pay:cod', 5));
+    const orders = await myOrders();
+    expect(orders).toHaveLength(1);
+    expect(orders[0]!.items[0]!.quantity).toBe(2);
+    expect((await t.c.carts.get(customerId)).lines).toEqual([]);
+  });
+
+  it('restores the cart if the order cannot be created', async () => {
+    await tap(`qty:${id.mug}:1`, who);
+    const spy = vi.spyOn(t.c.orders, 'create').mockRejectedValueOnce(new ConflictError('Product not available: MUG'));
+    try {
+      const r = await tap('pay:cod', who);
+      expect(r.text).toMatch(/Sorry — Product not available/);
+    } finally {
+      spy.mockRestore();
+    }
+    expect((await t.c.carts.get(customerId)).lines.map((l) => [l.sku, l.quantity])).toEqual([['MUG', 1]]);
+    expect(await myOrders()).toHaveLength(1);
   });
 });
