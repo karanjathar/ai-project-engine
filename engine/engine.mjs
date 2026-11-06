@@ -147,6 +147,23 @@ export function parseTasks(text) {
   return tasks;
 }
 
+/** Returns a human-readable problem with the dependency graph (unknown dep, self-dep or cycle), or ''. */
+export function dependencyProblem(tasks) {
+  const ids = new Map(tasks.map((t) => [t.id, t]));
+  for (const t of tasks) for (const d of t.deps) if (!ids.has(d)) return `${t.id} depends on unknown task ${d}`;
+  const state = new Map(); // 1 = visiting, 2 = done
+  const visit = (id, trail) => {
+    if (state.get(id) === 2) return '';
+    if (state.get(id) === 1) return `dependency cycle: ${[...trail.slice(trail.indexOf(id)), id].join(' → ')}`;
+    state.set(id, 1);
+    for (const d of ids.get(id).deps) { const r = visit(d, [...trail, id]); if (r) return r; }
+    state.set(id, 2);
+    return '';
+  };
+  for (const t of tasks) { const r = visit(t.id, []); if (r) return r; }
+  return '';
+}
+
 function setTaskStatus(id, mark) {
   const lines = read(F.tasks).split('\n');
   const idx = lines.findIndex((l) => TASK_RE.test(l) && TASK_RE.exec(l)[2] === id);
@@ -194,7 +211,8 @@ function sectionEntries(heading) {
 export function approvals() {
   return sectionEntries('Approvals').map((l) => l.slice(2));
 }
-const isApproved = (key) => approvals().some((a) => a.toLowerCase().startsWith(key.toLowerCase() + ' '));
+// Exact match on the key before the " — approved by …" suffix ("phase Core" must not match "phase Core API").
+const isApproved = (key) => approvals().some((a) => a.split(' — ')[0].trim().toLowerCase() === key.trim().toLowerCase());
 
 // ---------------------------------------------------------------- context extraction
 
@@ -241,16 +259,18 @@ export function runGates(cfg, { only, quiet = false } = {}) {
   const results = [];
   for (const g of gates) {
     const t0 = Date.now();
-    const r = sh(g.run, { env: { ...withoutColor(process.env), NO_COLOR: '1' } });
+    const timeoutSec = g.timeoutSec ?? cfg.commands?.gateTimeoutSec ?? 900;
+    const r = sh(g.run, { env: { ...withoutColor(process.env), NO_COLOR: '1' }, timeout: timeoutSec * 1000, killSignal: 'SIGKILL' });
+    const timedOut = r.error?.code === 'ETIMEDOUT';
     const secs = ((Date.now() - t0) / 1000).toFixed(1);
-    const ok = r.status === 0;
+    const ok = r.status === 0 && !timedOut;
     const required = g.required !== false;
     results.push({ name: g.name, ok, required, status: r.status, secs });
     if (quiet) continue;
     if (ok) console.log(`${green('✔')} ${g.name} ${dim(`${secs}s`)}`);
     else {
       const label = required ? red('✘') : yellow('⚠ (optional)');
-      const hint = r.status === 127 ? ' — command not found; install the tool or fix commands.gates in engine.config.jsonc' : '';
+      const hint = timedOut ? ` — timed out after ${timeoutSec}s (raise commands.gateTimeoutSec or the gate's timeoutSec if this is expected)` : r.status === 127 ? ' — command not found; install the tool or fix commands.gates in engine.config.jsonc' : '';
       console.log(`${label} ${g.name} ${dim(`exit ${r.status}, ${secs}s`)}${hint}  ${dim(`$ ${g.run}`)}`);
       // Token saver: only the tail of failing output is shown.
       console.log(tail(`${r.stdout ?? ''}\n${r.stderr ?? ''}`, n));
@@ -421,6 +441,7 @@ commands.help = () => {
 
   ${bold('Control')}
     status                                        compact progress (use after /clear)
+    deploy-check                                  verify tasks done, deploy approved, gates green
     approve <plan|phase|deploy> [name]            record a human approval (humans only)
     compact                                       archive old state-summary entries
 `);
@@ -489,6 +510,8 @@ commands.next = () => {
   if (!existsSync(F.tasks)) fail('docs/4_TASKS.md not found — run /engine-plan first.');
   const tasks = parseTasks(read(F.tasks));
   if (!tasks.length) fail('docs/4_TASKS.md has no tasks yet — run /engine-plan first.');
+  const graphProblem = dependencyProblem(tasks);
+  if (graphProblem) fail(`docs/4_TASKS.md is not runnable: ${graphProblem}. Fix it (or run /engine-replan).`);
   const cps = cfg.checkpoints ?? [];
   if (cps.includes('after-plan') && !isApproved('plan')) {
     fail(`CHECKPOINT: the plan has not been approved.\nA human must review docs/1–4 and run: ${ENGINE_CMD} approve plan`);
@@ -552,6 +575,8 @@ commands.done = (args) => {
   const task = parseTasks(read(F.tasks)).find((t) => t.id === id);
   if (!task) fail(`Task ${id} not found.`);
   if (task.status === 'done') fail(`Task ${id} is already done.`);
+  if ((cfg.checkpoints ?? []).includes('after-plan') && !isApproved('plan')) fail(`CHECKPOINT: the plan has not been approved, so ${id} cannot be completed.`);
+  if (task.status !== 'active') fail(`Task ${id} is "${task.status}", not in progress. Start tasks with \`${ENGINE_CMD} next\` so the workflow and checkpoints apply.`);
 
   console.log(dim(`Running gates for ${id}…`));
   const { ok } = runGates(cfg);
@@ -582,7 +607,11 @@ commands.done = (args) => {
     const lateSecrets = git(['diff', '--cached', '--name-only']).out.split('\n').filter((f) => f && isSecretPath(f, cfg.security));
     if (lateSecrets.length) git(['reset', '-q', '--', ...lateSecrets]);
     const trailer = cfg.git?.commitTrailer ? `\n\n${cfg.git.commitTrailer}` : '';
-    const r = git(['commit', '-q', '-m', `feat(${id}): ${task.title}${trailer}`]);
+    // Headless/CI machines often have no git identity: fall back instead of failing the whole task.
+    const ident = [];
+    if (!git(['config', 'user.name']).out) ident.push('-c', 'user.name=AI Project Engine');
+    if (!git(['config', 'user.email']).out) ident.push('-c', 'user.email=engine@users.noreply.local');
+    const r = git([...ident, 'commit', '-q', '-m', `feat(${id}): ${task.title}${trailer}`]);
     commitInfo = r.ok ? `commit ${git(['rev-parse', '--short', 'HEAD']).out}` : `commit skipped (${r.err || r.out || 'nothing to commit'})`;
   }
   console.log(`${green('✔')} ${id} done · ${commitInfo}`);
@@ -649,6 +678,19 @@ commands.approve = (args) => {
       }
     }
   }
+};
+
+commands['deploy-check'] = () => {
+  const cfg = loadConfig();
+  const problems = [];
+  const tasks = existsSync(F.tasks) ? parseTasks(read(F.tasks)) : [];
+  const open = tasks.filter((t) => t.status !== 'done');
+  if (open.length) problems.push(`${open.length} task(s) not done: ${open.map((t) => t.id).join(', ')}`);
+  if ((cfg.checkpoints ?? []).includes('before-deploy') && !isApproved('deploy')) problems.push(`deploy not approved — a human runs: ${ENGINE_CMD} approve deploy`);
+  const { ok } = runGates(cfg, { quiet: true });
+  if (!ok) problems.push('required gates are failing (run gate)');
+  if (problems.length) { process.exitCode = 1; fail(`NOT ready to deploy:\n- ${problems.join('\n- ')}`); }
+  console.log(`${green('✔')} ready to deploy`);
 };
 
 commands.status = () => {
