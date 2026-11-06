@@ -155,3 +155,11 @@ node engine/engine.mjs status | doctor | gate   # any time
 - Copilot prompt-file frontmatter keys can change between VS Code releases. If a key is rejected, adjust `frontmatter()` in `engine.mjs`.
 - Third-party integrations still can't be truly verified without real credentials. The engine makes the AI say so instead of pretending.
 - Human checkpoints rely on humans running `approve`. The AI is instructed never to, but discipline matters.
+
+## Hardening notes
+- Approvals match exactly (`phase Core` is not approved by `phase Core API`).
+- `done` requires the task to be in progress (started with `next`) and the plan approved.
+- Gates time out after `commands.gateTimeoutSec` (default 900s); override per gate with `timeoutSec`.
+- `next` refuses a task graph with unknown dependencies or cycles.
+- `deploy-check` verifies all tasks done, `approve deploy` recorded and gates green before a deploy.
+- Commits fall back to a generic git identity on headless machines.

@@ -7,7 +7,7 @@ import { mkdtempSync, readFileSync, writeFileSync, existsSync, mkdirSync } from 
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseJsonc, parseTasks, extractSection, isSecretPath, render } from './engine.mjs';
+import { parseJsonc, parseTasks, extractSection, isSecretPath, render, dependencyProblem } from './engine.mjs';
 
 const ENGINE = path.join(path.dirname(fileURLToPath(import.meta.url)), 'engine.mjs');
 
@@ -284,6 +284,99 @@ describe('guard hooks', () => {
     assert.equal(code('git push --force-with-lease origin feat'), 0);
     assert.equal(code('git add .env.example src/'), 0);
     assert.equal(code('rm -rf dist'), 0);
+  });
+});
+
+describe('hardening', () => {
+  test('dependencyProblem finds cycles, self-deps and unknown deps', () => {
+    const t = (src) => parseTasks(src);
+    assert.equal(dependencyProblem(t(TASKS)), '');
+    assert.match(dependencyProblem(t('## P\n- [ ] T01 a | deps: T02\n- [ ] T02 b | deps: T01\n')), /cycle: T01 → T02 → T01/);
+    assert.match(dependencyProblem(t('## P\n- [ ] T01 a | deps: T01\n')), /cycle/);
+    assert.match(dependencyProblem(t('## P\n- [ ] T01 a | deps: T09\n')), /unknown task T09/);
+  });
+
+  test('approvals match exactly: "phase Core" is not approved by "phase Core API"', () => {
+    const q = project();
+    q.run(['init', '--profile', 'node-ts', '--name', 'exact']);
+    q.put('docs/4_TASKS.md', '# T\n## Core API\n- [x] T01 a\n## Core\n- [ ] T02 b\n');
+    q.run(['approve', 'plan']);
+    assert.match(q.file('docs/6_STATE_SUMMARY.md'), /- phase Core API — baseline/);
+    assert.doesNotMatch(q.file('docs/6_STATE_SUMMARY.md'), /- phase Core — /);
+    assert.match(q.run(['approve', 'phase', 'Core']).out, /approved: phase Core/);
+  });
+
+  test('next refuses a task graph with a cycle', () => {
+    const q = project();
+    q.run(['init', '--profile', 'node-ts', '--name', 'cyc']);
+    q.put('docs/4_TASKS.md', '# T\n## P\n- [ ] T01 a | deps: T02\n- [ ] T02 b | deps: T01\n');
+    q.run(['approve', 'plan']);
+    const r = q.run(['next']);
+    assert.notEqual(r.code, 0);
+    assert.match(r.out, /cycle/);
+  });
+
+  test('done refuses a task that was never started, and an unapproved plan', () => {
+    const q = project();
+    q.run(['init', '--profile', 'node-ts', '--name', 'strict']);
+    q.setGates([{ name: 'ok', run: 'node -e "0"', required: true }]);
+    q.put('docs/4_TASKS.md', '# T\n## P\n- [ ] T01 a\n');
+    let r = q.run(['done', 'T01', 'did the thing, and decided on a thing too', '--no-commit']);
+    assert.notEqual(r.code, 0);
+    assert.match(r.out, /plan has not been approved/);
+    q.run(['approve', 'plan']);
+    r = q.run(['done', 'T01', 'did the thing, and decided on a thing too', '--no-commit']);
+    assert.notEqual(r.code, 0);
+    assert.match(r.out, /not in progress/);
+  });
+
+  test('CRLF files (Windows checkouts) are handled: block and add-task keep working', () => {
+    const q = project();
+    q.run(['init', '--profile', 'node-ts', '--name', 'crlf']);
+    q.put('docs/4_TASKS.md', TASKS.replace(/\n/g, '\r\n'));
+    q.put('docs/6_STATE_SUMMARY.md', q.file('docs/6_STATE_SUMMARY.md').replace(/\r?\n/g, '\r\n'));
+    assert.match(q.run(['block', 'T01', 'credentials missing (401 from provider)']).out, /T01 blocked/);
+    assert.match(q.file('docs/6_STATE_SUMMARY.md'), /## Blocked\n- \*\*T01\*\*/);
+    assert.match(q.run(['add-task', 'Phase 2: Features', 'Extra | accept: x']).out, /added T04/);
+  });
+
+  test('a hanging gate times out instead of stalling forever', () => {
+    const q = project();
+    q.run(['init', '--profile', 'node-ts', '--name', 'slow']);
+    q.setGates([{ name: 'hang', run: 'node -e "setTimeout(()=>{},60000)"', required: true, timeoutSec: 1 }]);
+    const r = q.run(['gate']);
+    assert.notEqual(r.code, 0);
+    assert.match(r.out, /timed out after 1s/);
+  });
+
+  test('deploy-check needs finished tasks, a green gate and the deploy approval', () => {
+    const q = project();
+    q.run(['init', '--profile', 'node-ts', '--name', 'dep']);
+    q.setGates([{ name: 'ok', run: 'node -e "0"', required: true }]);
+    q.put('docs/4_TASKS.md', '# T\n## P\n- [ ] T01 a\n');
+    assert.notEqual(q.run(['deploy-check']).code, 0);
+    q.put('docs/4_TASKS.md', '# T\n## P\n- [x] T01 a\n');
+    assert.match(q.run(['deploy-check']).out, /deploy not approved/);
+    q.run(['approve', 'deploy']);
+    const r = q.run(['deploy-check']);
+    assert.equal(r.code, 0);
+    assert.match(r.out, /ready to deploy/);
+  });
+
+  test('done commits even when git has no identity (headless CI)', () => {
+    const q = project();
+    q.run(['init', '--profile', 'node-ts', '--name', 'noid']);
+    q.setGates([{ name: 'ok', run: 'node -e "0"', required: true }]);
+    q.put('docs/4_TASKS.md', '# T\n## P\n- [ ] T01 a\n');
+    spawnSync('git', ['add', '-A'], { cwd: q.dir });
+    spawnSync('git', ['commit', '-qm', 'init'], { cwd: q.dir });
+    spawnSync('git', ['config', '--unset', 'user.name'], { cwd: q.dir });
+    spawnSync('git', ['config', '--unset', 'user.email'], { cwd: q.dir });
+    q.run(['approve', 'plan']);
+    q.run(['next']);
+    const env = { ...process.env, HOME: q.dir, XDG_CONFIG_HOME: q.dir, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' };
+    const r = spawnSync(process.execPath, [ENGINE, 'done', 'T01', 'built the thing and chose a simple approach'], { cwd: q.dir, env: { ...env, ENGINE_ROOT: q.dir, NO_COLOR: '1' }, encoding: 'utf8' });
+    assert.match(`${r.stdout}${r.stderr}`, /commit [0-9a-f]+/);
   });
 });
 
