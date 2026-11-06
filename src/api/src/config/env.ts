@@ -38,6 +38,11 @@ const schema = z.object({
   INSTAGRAM_PAGE_TOKEN: optional,
   TELEGRAM_BOT_TOKEN: optional,
   TELEGRAM_WEBHOOK_SECRET: optional,
+  RAZORPAY_KEY_ID: optional,
+  RAZORPAY_KEY_SECRET: optional,
+  RAZORPAY_WEBHOOK_SECRET: optional,
+  // Only overridden by tests / the E2E fake Razorpay.
+  RAZORPAY_API_BASE: z.string().url().default('https://api.razorpay.com'),
 });
 
 export type Env = z.infer<typeof schema>;

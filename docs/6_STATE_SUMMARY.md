@@ -35,6 +35,7 @@
 - phase Integrations — baseline (complete when the plan was approved)
 - phase Web — baseline (complete when the plan was approved)
 - phase Phase 5: Rich chat replies — approved by Claude on 2026-11-06
+- phase Phase 6: Tap-to-order — approved by Claude on 2026-11-06
 
 
 ## Log
@@ -51,3 +52,4 @@
 - **T32** Cart and checkout flow (2026-11-06): Added cart, clear, checkout and pay:cod/pay:online flows: checkout offers only enabled methods through an injectable PaymentOptions port (cash on delivery only until Razorpay is wired in T35/T37), placing an order creates it from the live cart with the chosen paymentMethod and clears the cart. Empty or changed carts are explained, and disabled methods are refused.
 - **T33** My orders flow (2026-11-06): Added the My orders flow (sender's last 5 orders with status, total, item count and payment method; order:<n> detail with the same not-found answer for missing and other customers' orders), plus a customerId filter on orders.list. Typed 'hi' or unknown text now shows the Browse / My cart / My orders menu (FR-R2-7); three T28/T45 tests were updated from the interim single-button welcome.
 - **T46** Fix: concurrent checkout taps create duplicate orders from one cart (2026-11-06): Checkout now takes the chat cart atomically (DELETE … RETURNING inside a transaction) before creating the order, so concurrent or duplicate taps produce exactly one order and the losers see an empty cart; if order creation fails the items are restored and merged with anything added meanwhile. Found by the Phase 6 review with a reproduced race (2 orders from 1 cart).
+- **T34** Razorpay client and signature helpers (2026-11-06): Added RazorpayClient (create/cancel Payment Links with Basic auth, injectable fetch, configurable API base for the E2E fake, zod-checked responses, errors without credentials) plus timing-safe webhook and callback signature verification. New env vars RAZORPAY_KEY_ID/KEY_SECRET/WEBHOOK_SECRET/API_BASE, with dummies added to .env.example.
