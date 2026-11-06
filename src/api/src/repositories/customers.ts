@@ -10,9 +10,9 @@ export class CustomersRepo extends SimpleRepo<Customer> {
   }
 
   /** Upserts the customer behind a chat identity; existing records are never overwritten. */
-  async findOrCreateByChannel(channel: ChannelName, channelUserId: string, displayName: string | undefined): Promise<Customer> {
+  async findOrCreateByChannel(channel: ChannelName | 'web', channelUserId: string, displayName: string | undefined): Promise<Customer> {
     const name = displayName?.trim().slice(0, 120) || `${channel} user ${channelUserId}`;
-    const phone = channel === 'whatsapp' ? `+${channelUserId.replace(/^\+/, '')}` : null;
+    const phone = channel === 'whatsapp' || channel === 'web' ? `+${channelUserId.replace(/^\+/, '')}` : null;
     await this.q.query(
       `INSERT INTO customers (name, phone, channel, channel_user_id) VALUES ($1, $2, $3, $4)
        ON CONFLICT (channel, channel_user_id) DO NOTHING`, [name, phone, channel, channelUserId]);

@@ -22,7 +22,7 @@ Each task is TDD: failing test → implementation → `npm run typecheck && npm 
 - [x] T14 Bot command engine (help/catalog/stock/price/order/status)
 - [x] T15 Webhooks: Meta verify + HMAC signature + parsing; Telegram secret header; idempotent by message id
 - [x] T16 Order status notifications to the customer's channel; `/messages`, `/messages/send`, `/channels`
-- [ ] T17 Azure Blob SAS upload endpoint; public catalog + public order endpoints
+- [x] T17 Azure Blob SAS upload endpoint; public catalog + public order endpoints
 - [ ] T18 Composition root `index.ts`, static SPA serving, App Insights hook, graceful shutdown
 
 ## Web

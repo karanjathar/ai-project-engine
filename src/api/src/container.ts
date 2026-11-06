@@ -21,6 +21,7 @@ import { ChannelHub } from './channels/hub.js';
 import { WhatsAppAdapter } from './channels/whatsapp.js';
 import { MetaPageAdapter } from './channels/metaPage.js';
 import { TelegramAdapter } from './channels/telegram.js';
+import { ImageStorage } from './storage/blob.js';
 
 export interface ContainerOverrides {
   logger?: Logger;
@@ -67,7 +68,8 @@ export function createContainer(opts: { env: Env; pool: pg.Pool } & ContainerOve
   orders.onStatusChange((order, previous) => notifier.onStatusChange(order, previous));
   const bot = new BotService(repos.products, orders, customers, settings);
   const inbox = new InboxService(messages, events, bot, messenger, logger);
-  return { env, pool, logger, repos, auth, stock, customers, settings, events, orders, alerts, messages, hub, messenger, bot, inbox };
+  const images = new ImageStorage(env.AZURE_STORAGE_CONNECTION_STRING, env.AZURE_STORAGE_CONTAINER);
+  return { env, pool, logger, repos, auth, stock, customers, settings, events, orders, alerts, messages, hub, messenger, bot, inbox, images };
 }
 
 export type Container = ReturnType<typeof createContainer>;
