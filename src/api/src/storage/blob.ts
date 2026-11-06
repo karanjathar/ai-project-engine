@@ -18,6 +18,11 @@ export class ImageStorage {
 
   isConfigured(): boolean { return Boolean(this.container); }
 
+  /** Origin of the Blob endpoint (Azure, custom domain or Azurite) for the Content-Security-Policy. */
+  origin(): string | undefined {
+    return this.container ? new URL(this.container.url).origin : undefined;
+  }
+
   /** Creates the container with anonymous read on blobs so the public shop can show images. */
   async ensureContainer(): Promise<void> {
     await this.container?.createIfNotExists({ access: 'blob' });

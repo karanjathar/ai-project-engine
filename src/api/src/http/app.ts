@@ -29,14 +29,15 @@ export function createApp(c: Container, opts: AppOptions = {}): Express {
   const { env, pool, logger } = c;
   const app = express();
   app.disable('x-powered-by');
+  const blobOrigin = c.images.origin();
   app.set('trust proxy', 1); // Azure Container Apps ingress
   app.use(
     helmet({
       contentSecurityPolicy: {
         directives: {
           defaultSrc: ["'self'"],
-          imgSrc: ["'self'", 'data:', 'https:'],
-          connectSrc: ["'self'", 'https://*.blob.core.windows.net'],
+          imgSrc: ["'self'", 'data:', 'https:', ...(blobOrigin ? [blobOrigin] : [])],
+          connectSrc: ["'self'", 'https://*.blob.core.windows.net', ...(blobOrigin ? [blobOrigin] : [])],
           styleSrc: ["'self'", "'unsafe-inline'"],
         },
       },

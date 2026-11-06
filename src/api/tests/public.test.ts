@@ -21,6 +21,12 @@ afterAll(async () => { await t.close(); });
 const auth = (tok: string) => ({ authorization: `Bearer ${tok}` });
 
 describe('image upload SAS', () => {
+  it('allows the configured Blob endpoint in the CSP so browsers can upload and show images', async () => {
+    const csp = (await request(t.app).get('/healthz')).headers['content-security-policy'] as string;
+    expect(csp).toMatch(/connect-src[^;]*http:\/\/127\.0\.0\.1:10000/);
+    expect(csp).toMatch(/img-src[^;]*http:\/\/127\.0\.0\.1:10000/);
+  });
+
   it('reports whether uploads are configured', async () => {
     const res = await request(t.app).get('/api/uploads/status').set(auth(staff));
     expect(res.body).toEqual({ configured: true });
