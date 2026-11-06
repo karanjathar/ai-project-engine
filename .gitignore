@@ -1,0 +1,16 @@
+# Environment files (CRITICAL SECURITY)
+.env
+.env.local
+.env.production
+*.env
+
+# Dependencies & Build Outputs
+node_modules/
+dist/
+build/
+bin/
+obj/
+
+# Logs & Testing
+*.log
+coverage/
