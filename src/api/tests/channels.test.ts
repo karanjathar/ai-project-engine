@@ -138,3 +138,45 @@ describe('WhatsApp interactive replies (T25)', () => {
     expect(action.buttons[0]!.reply.title.length).toBeLessThanOrEqual(20);
   });
 });
+
+describe('Telegram & Messenger/Instagram rich replies (T26)', () => {
+  it('Telegram: one inline button per option, url buttons for links', async () => {
+    const f = fakeFetch();
+    const tg = new TelegramAdapter({ token: '1:T' }, f.fn);
+    await tg.sendReply('42', { text: 'Welcome!', buttons: [{ id: 'catalog', title: 'Browse' }, { id: 'orders', title: 'My orders' }] });
+    expect(f.calls[0]).toMatchObject({ url: 'https://api.telegram.org/bot1:T/sendMessage' });
+    expect(f.calls[0]!.body).toEqual({ chat_id: '42', text: 'Welcome!', reply_markup: { inline_keyboard: [
+      [{ text: 'Browse', callback_data: 'catalog' }], [{ text: 'My orders', callback_data: 'orders' }],
+    ] } });
+    await tg.sendReply('42', { text: 'Products', list: { button: 'Choose', sections: [{ title: 'S', rows: [{ id: 'prod:1', title: 'Red Tee', description: '₹499' }] }] } });
+    expect((f.calls[1]!.body as { reply_markup: unknown }).reply_markup).toEqual({ inline_keyboard: [[{ text: 'Red Tee · ₹499', callback_data: 'prod:1' }]] });
+    await tg.sendReply('42', { text: 'Pay now', link: { label: 'Pay ₹998', url: 'https://rzp.io/i/x' } });
+    expect((f.calls[2]!.body as { reply_markup: unknown }).reply_markup).toEqual({ inline_keyboard: [[{ text: 'Pay ₹998', url: 'https://rzp.io/i/x' }]] });
+    await tg.sendReply('42', { text: 'Plain' });
+    expect(f.calls[3]!.body).toEqual({ chat_id: '42', text: 'Plain' });
+  });
+
+  it('Telegram: answers callback queries', async () => {
+    const f = fakeFetch();
+    await new TelegramAdapter({ token: '1:T' }, f.fn).answerCallbackQuery('cbq-1');
+    expect(f.calls[0]).toMatchObject({ url: 'https://api.telegram.org/bot1:T/answerCallbackQuery', body: { callback_query_id: 'cbq-1' } });
+  });
+
+  it('Messenger/Instagram: options become quick replies; list details and links go in the text', async () => {
+    const f = fakeFetch();
+    const ms = new MetaPageAdapter('messenger', { token: 'P', graphVersion: 'v21.0' }, f.fn);
+    await ms.sendReply('PSID', { text: 'Products', list: { button: 'Choose', sections: [{ title: 'S', rows: [
+      { id: 'prod:1', title: 'Red T-Shirt (Medium size)', description: '₹499 · 40 left' }, { id: 'prod:2', title: 'Cap' },
+    ] }] } });
+    expect(f.calls[0]!.body).toEqual({ recipient: { id: 'PSID' }, messaging_type: 'RESPONSE', message: {
+      text: 'Products\n\n• Red T-Shirt (Medium size) — ₹499 · 40 left\n• Cap',
+      quick_replies: [
+        { content_type: 'text', title: 'Red T-Shirt (Medium…', payload: 'prod:1' },
+        { content_type: 'text', title: 'Cap', payload: 'prod:2' },
+      ],
+    } });
+    const ig = new MetaPageAdapter('instagram', { token: 'P', graphVersion: 'v21.0' }, f.fn);
+    await ig.sendReply('IGSID', { text: 'Tap to pay', link: { label: 'Pay ₹998', url: 'https://rzp.io/i/x' } });
+    expect(f.calls[1]!.body).toEqual({ recipient: { id: 'IGSID' }, messaging_type: 'RESPONSE', message: { text: 'Tap to pay\n\nPay ₹998: https://rzp.io/i/x' } });
+  });
+});
