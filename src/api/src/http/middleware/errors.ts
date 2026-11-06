@@ -22,11 +22,15 @@ export function errorHandler(logger?: Logger): ErrorRequestHandler {
       res.status(err.status).json({ error: { code: err.code, message: err.message, details: err.details } });
       return;
     }
-    // body-parser errors (malformed JSON, payload too large)
-    if (typeof err === 'object' && err !== null && 'type' in err && 'status' in err) {
+    // http-errors from body-parser (malformed JSON, payload too large) and serve-static (missing file)
+    if (typeof err === 'object' && err !== null && 'status' in err) {
       const status = Number((err as { status: unknown }).status);
+      if (status === 404) {
+        res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Not found' } });
+        return;
+      }
       if (status >= 400 && status < 500) {
-        res.status(status).json({ error: { code: 'BAD_REQUEST', message: 'Malformed request body' } });
+        res.status(status).json({ error: { code: 'BAD_REQUEST', message: 'Malformed request' } });
         return;
       }
     }

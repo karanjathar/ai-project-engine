@@ -1,4 +1,6 @@
 import express, { Router, type Express } from 'express';
+import { existsSync } from 'node:fs';
+import path from 'node:path';
 import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
@@ -17,7 +19,12 @@ import { channelRoutes, messageRoutes } from './routes/messages.js';
 import { publicRoutes, uploadRoutes } from './routes/public.js';
 import { categoryRoutes, customerRoutes, productRoutes, supplierRoutes, warehouseRoutes } from './routes/catalog.js';
 
-export function createApp(c: Container): Express {
+export interface AppOptions {
+  /** Directory of the built web SPA (src/web/dist). Served with an index.html fallback. */
+  staticDir?: string;
+}
+
+export function createApp(c: Container, opts: AppOptions = {}): Express {
   const { env, pool, logger } = c;
   const app = express();
   app.disable('x-powered-by');
@@ -79,6 +86,17 @@ export function createApp(c: Container): Express {
   app.use('/api', notFoundHandler);
   app.use('/webhooks', webhookRoutes(c));
   app.use('/webhooks', notFoundHandler);
+
+  if (opts.staticDir && existsSync(path.join(opts.staticDir, 'index.html'))) {
+    const indexFile = path.join(opts.staticDir, 'index.html');
+    app.use('/assets', express.static(path.join(opts.staticDir, 'assets'), { immutable: true, maxAge: '1y', fallthrough: false }));
+    app.use(express.static(opts.staticDir, { index: false, maxAge: '1h' }));
+    // Client-side routing: unknown GETs render the SPA shell.
+    app.get('/{*splat}', (_req, res) => {
+      res.set('Cache-Control', 'no-cache');
+      res.sendFile(indexFile);
+    });
+  }
   app.use(errorHandler(logger));
   return app;
 }
