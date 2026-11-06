@@ -26,3 +26,15 @@
 - **T23:** Built the public /shop storefront (search, availability-capped cart persisted locally, web checkout, and an 'Order on WhatsApp' deep link that pre-fills bot order commands, which the bot now merges into one multi-item order). Added a PWA manifest, PNG/SVG icons and a service worker that never caches /api, and verified the app end to end in Chromium with zero console errors.
 - **Prompt 4 (Security audit):** Static scans, dependency audits and a controls review passed. Patched dev-only minimatch, added request logging, made chat data staff-only, and added self-service password change (see 7_SECURITY_AUDIT.md).
 - **Prompt 5 (DevOps):** Added a multi-stage non-root Dockerfile, a docker-compose stack (app + PostgreSQL + Azurite, verified healthy with a real browser image upload), Bicep for the full Azure topology (compiles with zero lint warnings), a GitHub Actions CI/CD pipeline using OIDC, and DEPLOYMENT_GUIDE.md.
+
+
+## Approvals
+- plan — approved by Claude on 2026-11-06
+- phase Foundation — baseline (complete when the plan was approved)
+- phase Core domain — baseline (complete when the plan was approved)
+- phase Integrations — baseline (complete when the plan was approved)
+- phase Web — baseline (complete when the plan was approved)
+
+
+## Log
+- **T24** BotReply model, normaliser and plain-text fallback (2026-11-06): Added the channel-neutral BotReply model with normaliseReply (clamps to WhatsApp limits and 64-byte action ids, never throws), renderPlain numbered-text fallback, and numbered-choice resolution. Interactive text is capped at 1024 chars, plain text at 4096.
