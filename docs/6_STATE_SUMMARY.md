@@ -1,3 +1,3 @@
-# Rolling Project Memory
+# 6. State Summary (Rolling Memory)
 
-> 2-sentence summary appended after each completed task. Read after /clear.
+- **Prompt 1 (Architecture):** Scaffolded the StockSync inventory platform docs (PRD, architecture, schemas, 23-task graph) and `.env.example`. Stack: Node 22/TS, Express 5, PostgreSQL, React/Vite PWA, Meta + Telegram messaging, deployed on Azure Container Apps.
