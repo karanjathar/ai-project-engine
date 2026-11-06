@@ -1,7 +1,7 @@
 import type pg from 'pg';
 import { withTx } from '../db/tx.js';
 import { ConflictError, NotFoundError, ValidationError } from '../domain/errors.js';
-import type { Order, OrderChannel, OrderItem, OrderStatus } from '../domain/types.js';
+import type { Order, OrderChannel, OrderItem, OrderStatus, PaymentMethod } from '../domain/types.js';
 import type { EventBus } from '../realtime/bus.js';
 import type { SettingsService } from './settings.js';
 import type { StockService } from './stock.js';
@@ -12,6 +12,7 @@ export interface NewOrder {
   items: { productId: string; quantity: number }[];
   notes?: string;
   warehouseId?: string | null;
+  paymentMethod?: PaymentMethod;
 }
 
 export type OrderStatusObserver = (order: Order, previous: OrderStatus | null) => void | Promise<void>;
@@ -19,7 +20,8 @@ export type OrderStatusObserver = (order: Order, previous: OrderStatus | null) =
 const ORDER_SELECT = `
   SELECT o.id, o.number, o.customer_id AS "customerId", c.name AS "customerName", o.channel, o.status,
          o.warehouse_id AS "warehouseId", o.total_cents AS "totalCents", o.notes,
-         o.created_at AS "createdAt", o.updated_at AS "updatedAt"
+         o.created_at AS "createdAt", o.updated_at AS "updatedAt",
+         o.payment_method AS "paymentMethod", o.payment_status AS "paymentStatus", o.public_token AS "publicToken"
   FROM orders o JOIN customers c ON c.id = o.customer_id`;
 
 type OrderRow = Omit<Order, 'items'>;
@@ -52,9 +54,9 @@ export class OrdersService {
       if (inactive.length) throw new ConflictError(`Product not available: ${inactive.map((p) => p.sku).join(', ')}`);
       const total = products.reduce((sum, p) => sum + p.priceCents * merged.get(p.id)!, 0);
       const { rows } = await c.query<{ id: string }>(
-        `INSERT INTO orders (customer_id, channel, status, warehouse_id, total_cents, notes)
-         VALUES ($1, $2, 'PENDING', $3, $4, $5) RETURNING id`,
-        [input.customerId, input.channel, input.warehouseId ?? null, total, input.notes ?? '']);
+        `INSERT INTO orders (customer_id, channel, status, warehouse_id, total_cents, notes, payment_method)
+         VALUES ($1, $2, 'PENDING', $3, $4, $5, $6) RETURNING id`,
+        [input.customerId, input.channel, input.warehouseId ?? null, total, input.notes ?? '', input.paymentMethod ?? 'COD']);
       const orderId = rows[0]!.id;
       for (const p of products) {
         await c.query('INSERT INTO order_items (order_id, product_id, quantity, unit_price_cents) VALUES ($1, $2, $3, $4)',

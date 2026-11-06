@@ -34,6 +34,7 @@
 - phase Core domain — baseline (complete when the plan was approved)
 - phase Integrations — baseline (complete when the plan was approved)
 - phase Web — baseline (complete when the plan was approved)
+- phase Phase 5: Rich chat replies — approved by Claude on 2026-11-06
 
 
 ## Log
@@ -44,3 +45,4 @@
 - **T28** Hub, inbox and bot speak BotReply (2026-11-06): The bot now returns BotReply (welcome/help carries a Browse button; tapped actions route to the matching command, typed v1 commands unchanged), ChannelHub.reply renders per channel or as numbered text and logs readable text plus the options shown, and the inbox maps a bare number to the last options (migration 002_reply_options). Kept typed 'menu' as the v1 catalog alias.
 - **T44** Fix: truncate() can split emoji surrogate pairs (2026-11-06): truncate() now iterates whole code points and stays within the stricter UTF-16 length, so emoji at a cut boundary are dropped instead of split into lone surrogates that Meta can reject. Covered for buttons, list rows and descriptions.
 - **T45** Fix: Telegram taps logged as raw action ids in the Inbox (2026-11-06): Label-less taps (Telegram callback_query) are now logged and published to the dashboard with the title of the option that was shown, falling back to the raw action id. The bot still receives the action itself, so routing is unchanged.
+- **T29** Migration 003 and Release 2 types (2026-11-06): Added migration 003 (orders payment_method/payment_status/public_token, payments with one-open-payment-per-order index, webhook_events, chat_carts) and the Release 2 domain types; orders expose the payment fields and accept a paymentMethod. Verified the in-place upgrade of a populated Release 1 database in an isolated schema, and the dashboard feed handles payment.updated.
