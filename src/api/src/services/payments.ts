@@ -2,9 +2,8 @@ import { createHash, randomBytes } from 'node:crypto';
 import type pg from 'pg';
 import type { Logger } from 'pino';
 import { withTx } from '../db/tx.js';
-import { ConflictError, NotConfiguredError, NotFoundError } from '../domain/errors.js';
+import { AppError, ConflictError, NotConfiguredError, NotFoundError, ValidationError } from '../domain/errors.js';
 import { z } from 'zod';
-import { AppError } from '../domain/errors.js';
 import type { Payment } from '../domain/types.js';
 import type { EventBus } from '../realtime/bus.js';
 import type { Messenger } from './messenger.js';
@@ -268,6 +267,14 @@ export class PaymentService {
       await this.orders.confirm(order.id, undefined, null); // auto-confirm from the default warehouse
     } catch (err) {
       if (!(err instanceof AppError)) throw err;
+      if (err instanceof ValidationError) {
+        // Not a reason to refund: the shop just has no default warehouse set. The order is paid and stays PENDING
+        // so staff can confirm it by hand (choosing a warehouse) — and the customer is reassured, not told to expect a refund.
+        const money = formatMoney(order.totalCents, (await this.settings.get()).currency);
+        await this.alertStaff(`⚠️ Order #${order.number} is PAID (${money}) but could not be auto-confirmed: no default warehouse is set. Set one in Settings, then confirm the order manually.`);
+        await this.sendToCustomer(order, { text: `✅ Payment of ${money} received for order #${order.number}. We'll confirm it shortly.` });
+        return;
+      }
       await this.pool.query("UPDATE orders SET payment_status = 'REFUND_DUE', updated_at = now() WHERE id = $1", [order.id]);
       order = (await this.orders.get(order.id))!;
       this.events.publish({ type: 'payment.updated', orderId: order.id, number: order.number, paymentStatus: 'REFUND_DUE' });

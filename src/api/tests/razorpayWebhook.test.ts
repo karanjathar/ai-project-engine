@@ -143,6 +143,30 @@ describe('POST /webhooks/razorpay (T36)', () => {
     expect(alerts.filter((a) => a.startsWith('STAFF:'))).toHaveLength(1);
   });
 
+  it('paid with no default warehouse → stays PENDING/PAID for a manual confirm, never REFUND_DUE (T50)', async () => {
+    await t.c.stock.receive({ productId: ids.tee.id, warehouseId: ids.main.id, quantity: 10 }, null);
+    await t.c.settings.update({ defaultWarehouseId: null });
+    try {
+      const { order, plink } = await onlineOrder(1);
+      alerts.length = 0;
+      expect((await send(paidEvent(plink, 1500), { eventId: 'evt_nowh' })).status).toBe(200);
+      expect(await t.c.orders.get(order.id)).toMatchObject({ status: 'PENDING', paymentStatus: 'PAID' });
+      const staff = alerts.filter((a) => a.startsWith('STAFF:'));
+      expect(staff).toHaveLength(1);
+      expect(staff[0]).toContain(`#${order.number}`);
+      expect(staff[0]).toMatch(/default warehouse/i);
+      expect(staff[0]).not.toMatch(/refund/i);
+      const customerMsgs = alerts.filter((a) => a.startsWith('919811110000:'));
+      expect(customerMsgs).toHaveLength(1);
+      expect(customerMsgs[0]).toMatch(/payment .*received/i);
+      expect(customerMsgs[0]).not.toMatch(/refund/i);
+      await t.c.orders.confirm(order.id, ids.main.id, null); // staff confirm by hand
+      expect(await t.c.orders.get(order.id)).toMatchObject({ status: 'CONFIRMED', paymentStatus: 'PAID' });
+    } finally {
+      await t.c.settings.update({ defaultWarehouseId: ids.main.id });
+    }
+  });
+
   it('a crash while auto-confirming is recovered by Razorpay retrying the same event', async () => {
     await t.c.stock.receive({ productId: ids.tee.id, warehouseId: ids.main.id, quantity: 10 }, null);
     const { order, plink } = await onlineOrder(1);
