@@ -6,13 +6,10 @@ import type { ProductsRepo } from '../repositories/products.js';
 import type { OrdersService } from './orders.js';
 import type { SettingsService } from './settings.js';
 
-export function formatMoney(cents: number, currency: string): string {
-  try {
-    return new Intl.NumberFormat('en', { style: 'currency', currency }).format(cents / 100);
-  } catch {
-    return `${(cents / 100).toFixed(2)} ${currency}`;
-  }
-}
+import { formatMoney } from './money.js';
+import type { ChatFlow } from './chatFlow.js';
+
+export { formatMoney };
 
 /** Chat command engine shared by every channel. Returns the reply text. */
 export class BotService {
@@ -21,12 +18,17 @@ export class BotService {
     private readonly orders: OrdersService,
     private readonly customers: CustomersRepo,
     private readonly settings: SettingsService,
+    private readonly flow?: ChatFlow,
   ) {}
 
   /** Maps tapped actions (docs/3_SCHEMAS.md §3.12) to the command they stand for. */
   private static readonly ACTION_COMMANDS: Record<string, string> = { catalog: 'catalog', menu: 'help', help: 'help' };
 
   async handle(msg: InboundMessage): Promise<BotReply> {
+    if (msg.action !== undefined && this.flow) {
+      const flowReply = await this.flow.handle(msg);
+      if (flowReply) return flowReply;
+    }
     const command = msg.action !== undefined ? BotService.ACTION_COMMANDS[msg.action] ?? 'help' : msg.text;
     const text = await this.handleText({ ...msg, text: command });
     const first = command.trim().split(/\s+/)[0]?.toLowerCase() ?? '';

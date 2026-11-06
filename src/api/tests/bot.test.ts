@@ -78,9 +78,11 @@ describe('rich replies (T28)', () => {
   });
 
   it('a tapped action is routed like the matching command', async () => {
+    // Since T31 the catalog/menu actions are owned by the tap-to-order ChatFlow (docs/3_SCHEMAS.md §3.12).
     const reply = await t.c.bot.handle({ ...wa('🛍 Browse catalog'), action: 'catalog' });
-    expect(reply.text).toContain('Corner Shop catalog');
-    expect((await t.c.bot.handle({ ...wa('whatever'), action: 'menu' })).buttons).toHaveLength(1);
+    expect(reply.text).toContain('pick a product');
+    expect(reply.list?.sections[0]!.rows.map((r) => r.title)).toContain('T-Shirt');
+    expect((await t.c.bot.handle({ ...wa('whatever'), action: 'menu' })).buttons?.map((b) => b.id)).toEqual(['catalog', 'cart', 'orders']);
   });
 });
 
@@ -110,7 +112,7 @@ describe('numbered replies via the real channel hub (T28)', () => {
     expect(await c.messages.lastOptions('telegram', '501')).toEqual([{ id: 'catalog', title: '🛍 Browse catalog' }]);
 
     await c.inbox.receive({ channel: 'telegram', from: '501', text: '1', externalId: 'tg:501:2' });
-    expect(String((f.calls.at(-1)!.body as { text: string }).text)).toContain('Corner Shop catalog');
+    expect(String((f.calls.at(-1)!.body as { text: string }).text)).toContain('pick a product'); // "1" → catalog action → interactive catalog
     await c.inbox.receive({ channel: 'telegram', from: '501', text: '7', externalId: 'tg:501:3' });
     expect(String((f.calls.at(-1)!.body as { text: string }).text)).toContain('Welcome');
   });

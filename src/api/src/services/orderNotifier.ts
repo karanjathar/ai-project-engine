@@ -1,6 +1,6 @@
 import type { ChannelName, Order, OrderStatus } from '../domain/types.js';
 import type { CustomersRepo } from '../repositories/customers.js';
-import { formatMoney } from './bot.js';
+import { formatMoney } from './money.js';
 import type { Messenger } from './messenger.js';
 import type { SettingsService } from './settings.js';
 

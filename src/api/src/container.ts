@@ -14,6 +14,8 @@ import { OrdersService } from './services/orders.js';
 import { AlertService } from './services/alerts.js';
 import type { Messenger } from './services/messenger.js';
 import { BotService } from './services/bot.js';
+import { ChatFlow } from './services/chatFlow.js';
+import { ChatCartsRepo } from './repositories/chatCarts.js';
 import { InboxService } from './services/inbox.js';
 import { OrderNotifier } from './services/orderNotifier.js';
 import { MessagesRepo } from './repositories/messages.js';
@@ -66,10 +68,12 @@ export function createContainer(opts: { env: Env; pool: pg.Pool } & ContainerOve
   stock.onChanged((changes) => alerts.onStockChanged(changes));
   const notifier = new OrderNotifier(customers, settings, messenger);
   orders.onStatusChange((order, previous) => notifier.onStatusChange(order, previous));
-  const bot = new BotService(repos.products, orders, customers, settings);
+  const carts = new ChatCartsRepo(pool);
+  const chatFlow = new ChatFlow(repos.products, repos.categories, customers, carts, settings);
+  const bot = new BotService(repos.products, orders, customers, settings, chatFlow);
   const inbox = new InboxService(messages, events, bot, messenger, logger);
   const images = new ImageStorage(env.AZURE_STORAGE_CONNECTION_STRING, env.AZURE_STORAGE_CONTAINER);
-  return { env, pool, logger, repos, auth, stock, customers, settings, events, orders, alerts, messages, hub, messenger, bot, inbox, images };
+  return { env, pool, logger, repos, auth, stock, customers, settings, events, orders, alerts, messages, hub, messenger, bot, inbox, images, carts, chatFlow };
 }
 
 export type Container = ReturnType<typeof createContainer>;
