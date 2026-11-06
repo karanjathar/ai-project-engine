@@ -28,3 +28,9 @@ export class ConflictError extends AppError {
 export class NotConfiguredError extends AppError {
   constructor(feature: string) { super(501, 'NOT_CONFIGURED', `${feature} is not configured`); }
 }
+
+export class InsufficientStockError extends AppError {
+  constructor(details: { sku?: string; available: number; requested: number }) {
+    super(409, 'INSUFFICIENT_STOCK', `Insufficient stock${details.sku ? ` for ${details.sku}` : ''}: ${details.available} available, ${details.requested} requested`, details);
+  }
+}
