@@ -6,3 +6,4 @@
 - **T03:** Added createApp with helmet CSP, CORS allowlist, rate limiting, raw-body capture for webhook signatures, and /healthz. A central error handler maps domain, zod and Postgres errors to safe JSON responses without leaking internals.
 - **T04:** Added bcrypt + HS256 JWT login with timing-safe unknown-email handling, per-request user revalidation (deleted users lose access), and a viewer<staff<admin RBAC middleware. Admins manage users via /api/users, and a bootstrap admin is created from env on first start.
 - **T05:** Added a generic SimpleRepo + crudRoutes factory (whitelisted columns, escaped ILIKE search) and a ProductsRepo that computes totalQuantity across warehouses. Products support normalised SKUs, JSON custom attributes, search/category/low-stock filters, and duplicate-SKU 409s.
+- **T06:** Added warehouse CRUD on the generic crud router with uppercase unique location codes. Stock is tracked per product per warehouse from here on.

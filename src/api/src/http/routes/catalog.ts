@@ -59,3 +59,12 @@ export function productRoutes(c: Container): Router {
   });
   return r;
 }
+
+export function warehouseRoutes(c: Container): Router {
+  const s = z.object({
+    code: z.string().trim().toUpperCase().regex(/^[A-Z0-9_-]{1,20}$/, 'code may contain only letters, digits, - _'),
+    name,
+    address: z.string().trim().max(500).optional(),
+  });
+  return crudRoutes({ entity: 'Warehouse', repo: c.repos.warehouses, create: s, patch: s.partial() });
+}

@@ -4,7 +4,7 @@ import type { Env } from './config/env.js';
 import { UsersRepo } from './repositories/users.js';
 import { SimpleRepo } from './repositories/simple.js';
 import { ProductsRepo } from './repositories/products.js';
-import type { Category } from './domain/types.js';
+import type { Category, Warehouse } from './domain/types.js';
 import { AuthService } from './services/auth.js';
 
 export interface ContainerOverrides {
@@ -19,6 +19,7 @@ export function createContainer(opts: { env: Env; pool: pg.Pool } & ContainerOve
     users: new UsersRepo(pool),
     categories: new SimpleRepo<Category>(pool, 'categories', { name: 'name' }, 'name', ['name']),
     products: new ProductsRepo(pool),
+    warehouses: new SimpleRepo<Warehouse>(pool, 'warehouses', { code: 'code', name: 'name', address: 'address' }, 'code', ['code', 'name']),
   };
   const auth = new AuthService(repos.users, env.JWT_SECRET, env.JWT_EXPIRES_IN, env.NODE_ENV === 'test' ? 4 : 12);
   return { env, pool, logger, repos, auth };

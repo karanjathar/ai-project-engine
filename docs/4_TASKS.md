@@ -9,7 +9,7 @@ Each task is TDD: failing test → implementation → `npm run typecheck && npm 
 ## Core domain
 - [x] T04 Auth: users repo, bcrypt, JWT login, `/auth/me`, RBAC middleware, admin bootstrap, `/users` admin CRUD
 - [x] T05 Categories + Products CRUD with custom attributes, search, duplicate-SKU 409
-- [ ] T06 Warehouses CRUD
+- [x] T06 Warehouses CRUD
 - [ ] T07 Stock service: receive/issue/adjust/transfer, atomic, ledger, never negative (incl. concurrency test)
 - [ ] T08 Suppliers + Customers CRUD
 - [ ] T09 Settings service (dynamic, defaults merged) + `/settings`
