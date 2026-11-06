@@ -4,6 +4,7 @@ import type { EventBus } from '../realtime/bus.js';
 import type { MessagesRepo } from '../repositories/messages.js';
 import type { BotService } from './bot.js';
 import type { Messenger } from './messenger.js';
+import { renderPlain, resolveNumberedChoice } from '../channels/reply.js';
 
 /** Inbound chat pipeline: de-duplicate → log → notify dashboard → bot reply. */
 export class InboxService {
@@ -22,8 +23,14 @@ export class InboxService {
     if (!fresh) return; // webhook retry of an already-processed message
     this.events.publish({ type: 'message.received', channel: msg.channel, from: msg.from, text: text.slice(0, 500) });
     try {
-      const reply = await this.bot.handle({ ...msg, text });
-      await this.messenger.send(msg.channel, msg.from, reply);
+      let action = msg.action;
+      if (!action && /^\s*\d{1,2}\s*$/.test(text)) {
+        // Numbered answer to options shown on a channel without rich UI (D-009).
+        action = resolveNumberedChoice(text, await this.messages.lastOptions(msg.channel, msg.from));
+      }
+      const reply = await this.bot.handle({ ...msg, text, ...(action ? { action } : {}) });
+      if (this.messenger.reply) await this.messenger.reply(msg.channel, msg.from, reply);
+      else await this.messenger.send(msg.channel, msg.from, renderPlain(reply));
     } catch (err) {
       this.logger.error({ err, channel: msg.channel }, 'failed to process inbound message');
     }

@@ -1,4 +1,5 @@
 import type { InboundMessage, Order } from '../domain/types.js';
+import type { BotReply } from '../channels/reply.js';
 import { AppError } from '../domain/errors.js';
 import type { CustomersRepo } from '../repositories/customers.js';
 import type { ProductsRepo } from '../repositories/products.js';
@@ -22,7 +23,20 @@ export class BotService {
     private readonly settings: SettingsService,
   ) {}
 
-  async handle(msg: InboundMessage): Promise<string> {
+  /** Maps tapped actions (docs/3_SCHEMAS.md §3.12) to the command they stand for. */
+  private static readonly ACTION_COMMANDS: Record<string, string> = { catalog: 'catalog', menu: 'help', help: 'help' };
+
+  async handle(msg: InboundMessage): Promise<BotReply> {
+    const command = msg.action !== undefined ? BotService.ACTION_COMMANDS[msg.action] ?? 'help' : msg.text;
+    const text = await this.handleText({ ...msg, text: command });
+    const first = command.trim().split(/\s+/)[0]?.toLowerCase() ?? '';
+    const known = ['stock', 'price', 'catalog', 'menu', 'order', 'status'];
+    const isWelcome = !known.includes(first);
+    const multiLineOrder = command.split('\n').filter((l) => l.trim()).length > 1 && /^order\s/im.test(command);
+    return isWelcome && !multiLineOrder ? { text, buttons: [{ id: 'catalog', title: '🛍 Browse catalog' }] } : { text };
+  }
+
+  private async handleText(msg: InboundMessage): Promise<string> {
     const s = await this.settings.get();
     const money = (c: number) => formatMoney(c, s.currency);
 

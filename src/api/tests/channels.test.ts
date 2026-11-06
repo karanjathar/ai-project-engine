@@ -180,3 +180,27 @@ describe('Telegram & Messenger/Instagram rich replies (T26)', () => {
     expect(f.calls[1]!.body).toEqual({ recipient: { id: 'IGSID' }, messaging_type: 'RESPONSE', message: { text: 'Tap to pay\n\nPay ₹998: https://rzp.io/i/x' } });
   });
 });
+
+describe('ChannelHub.reply (T28)', () => {
+  it('uses the adapter renderer when available and logs readable text with options', async () => {
+    const f = fakeFetch();
+    const repo = new MessagesRepo(pool);
+    const hub = new ChannelHub([new WhatsAppAdapter({ token: 'T', phoneNumberId: '9', graphVersion: 'v21.0' }, f.fn)], repo);
+    await hub.reply('whatsapp', '1999', { text: 'Pick', buttons: [{ id: 'a', title: 'Alpha' }, { id: 'b', title: 'Beta' }] });
+    expect(f.calls[0]!.body).toMatchObject({ type: 'interactive' });
+    const [row] = await repo.list({ channel: 'whatsapp', limit: 1 });
+    expect(row!.text).toBe('Pick\n\n1. Alpha\n2. Beta\n\nReply with a number.');
+    expect(await repo.lastOptions('whatsapp', '1999')).toEqual([{ id: 'a', title: 'Alpha' }, { id: 'b', title: 'Beta' }]);
+  });
+
+  it('falls back to numbered text for adapters without sendReply and skips unconfigured channels', async () => {
+    const sent: string[] = [];
+    const plain = { name: 'telegram' as const, isConfigured: () => true, send: async (_to: string, text: string) => { sent.push(text); } };
+    const repo = new MessagesRepo(pool);
+    await new ChannelHub([plain], repo).reply('telegram', '5', { text: 'Pay', link: { label: 'Pay now', url: 'https://x.test/p' } });
+    expect(sent).toEqual(['Pay\n\nPay now: https://x.test/p']);
+    const off = new ChannelHub([new TelegramAdapter({}, fakeFetch().fn)], repo);
+    await off.reply('telegram', '6', { text: 'x', buttons: [{ id: 'q', title: 'Q' }] });
+    expect((await repo.list({ channel: 'telegram', limit: 1 }))[0]).toMatchObject({ status: 'skipped', externalUser: '6' });
+  });
+});
