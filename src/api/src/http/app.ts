@@ -13,6 +13,7 @@ import { sseHandler } from '../realtime/sse.js';
 import { orderRoutes } from './routes/orders.js';
 import { dashboardStats } from '../services/dashboard.js';
 import { webhookRoutes } from './routes/webhooks.js';
+import { channelRoutes, messageRoutes } from './routes/messages.js';
 import { categoryRoutes, customerRoutes, productRoutes, supplierRoutes, warehouseRoutes } from './routes/catalog.js';
 
 export function createApp(c: Container): Express {
@@ -67,6 +68,8 @@ export function createApp(c: Container): Express {
   api.use('/settings', secure, settingsRoutes(c));
   api.get('/events', secure, sseHandler(c.events));
   api.use('/orders', secure, orderRoutes(c));
+  api.use('/messages', secure, messageRoutes(c));
+  api.use('/channels', secure, channelRoutes(c));
   api.get('/dashboard', secure, async (_req, res) => { res.json(await dashboardStats(pool)); });
 
   app.use('/api', api);

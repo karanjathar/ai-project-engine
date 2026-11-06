@@ -15,6 +15,7 @@ import { AlertService } from './services/alerts.js';
 import type { Messenger } from './services/messenger.js';
 import { BotService } from './services/bot.js';
 import { InboxService } from './services/inbox.js';
+import { OrderNotifier } from './services/orderNotifier.js';
 import { MessagesRepo } from './repositories/messages.js';
 import { ChannelHub } from './channels/hub.js';
 import { WhatsAppAdapter } from './channels/whatsapp.js';
@@ -62,6 +63,8 @@ export function createContainer(opts: { env: Env; pool: pg.Pool } & ContainerOve
   const messenger: Messenger = opts.messenger ?? hub;
   const alerts = new AlertService(repos.products, settings, events, messenger, logger);
   stock.onChanged((changes) => alerts.onStockChanged(changes));
+  const notifier = new OrderNotifier(customers, settings, messenger);
+  orders.onStatusChange((order, previous) => notifier.onStatusChange(order, previous));
   const bot = new BotService(repos.products, orders, customers, settings);
   const inbox = new InboxService(messages, events, bot, messenger, logger);
   return { env, pool, logger, repos, auth, stock, customers, settings, events, orders, alerts, messages, hub, messenger, bot, inbox };
