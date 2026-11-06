@@ -8,6 +8,7 @@ import { requireAuth } from './middleware/auth.js';
 import { authRoutes } from './routes/auth.js';
 import { userRoutes } from './routes/users.js';
 import { stockRoutes } from './routes/stock.js';
+import { settingsRoutes } from './routes/settings.js';
 import { categoryRoutes, customerRoutes, productRoutes, supplierRoutes, warehouseRoutes } from './routes/catalog.js';
 
 export function createApp(c: Container): Express {
@@ -59,6 +60,7 @@ export function createApp(c: Container): Express {
   api.use('/stock', secure, stockRoutes(c));
   api.use('/suppliers', secure, supplierRoutes(c));
   api.use('/customers', secure, customerRoutes(c));
+  api.use('/settings', secure, settingsRoutes(c));
 
   app.use('/api', api);
   app.use('/api', notFoundHandler);
