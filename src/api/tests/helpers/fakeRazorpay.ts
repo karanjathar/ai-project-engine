@@ -8,9 +8,11 @@ export function fakeRazorpay() {
   const calls: Captured[] = [];
   let n = 0;
   let failing = false;
+  let delayMs = 0;
   const fn = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input);
     calls.push({ url, method: init?.method ?? 'GET', headers: Object.fromEntries(new Headers(init?.headers).entries()), body: init?.body ? JSON.parse(String(init.body)) : undefined });
+    if (delayMs) await new Promise((r) => setTimeout(r, delayMs));
     if (failing) return Response.json({ error: { description: 'The server is down for maintenance' } }, { status: 503 });
     if (url.endsWith('/v1/payment_links')) {
       n += 1;
@@ -19,7 +21,7 @@ export function fakeRazorpay() {
     if (url.includes('/cancel')) return Response.json({ status: 'cancelled' });
     return Response.json({ ok: true });
   }) as typeof fetch;
-  return { fn, calls, links: () => calls.filter((c) => c.url.endsWith('/v1/payment_links')), setFailing: (v: boolean) => { failing = v; } };
+  return { fn, calls, links: () => calls.filter((c) => c.url.endsWith('/v1/payment_links')), setFailing: (v: boolean) => { failing = v; }, setDelay: (ms: number) => { delayMs = ms; } };
 }
 
 /** Sends a correctly signed Razorpay webhook to the app. */

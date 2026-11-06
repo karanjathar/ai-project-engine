@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
 import { buildTestApp, type TestApp } from './helpers/app.js';
 import { seedCatalog } from './helpers/fixtures.js';
@@ -100,5 +100,40 @@ describe('payment links for orders (T35)', () => {
     await t.c.settings.update({ currency: 'USD' });
     await expect(t.c.payments.linkForOrder(o.id)).rejects.toMatchObject({ status: 501 });
     await t.c.settings.update({ currency: 'INR' });
+  });
+});
+
+describe('link creation holds no database connection while waiting on Razorpay (T51)', () => {
+  it('stays responsive when Razorpay is slow and the pool is smaller than the number of requests', async () => {
+    const orders = await Promise.all(Array.from({ length: 15 }, () => order('ONLINE', 1))); // pool max is 10
+    rz.setDelay(2000);
+    const inflight = orders.map((o) => t.c.payments.linkForOrder(o.id));
+    await new Promise((r) => setTimeout(r, 400)); // every request is now waiting on Razorpay
+    const t0 = Date.now();
+    const health = await request(t.app).get('/healthz');
+    const ms = Date.now() - t0;
+    rz.setDelay(0);
+    expect(health.status).toBe(200);
+    expect(ms).toBeLessThan(1000);
+    const links = await Promise.all(inflight);
+    expect(new Set(links.map((l) => l.orderId)).size).toBe(15);
+  }, 20000);
+
+  it('an order cancelled while its link is being created ends with no payable link', async () => {
+    const o = await order('ONLINE', 1);
+    const original = t.c.razorpay.createPaymentLink.bind(t.c.razorpay);
+    const spy = vi.spyOn(t.c.razorpay, 'createPaymentLink').mockImplementationOnce(async (input) => {
+      await t.c.orders.cancel(o.id, null); // staff cancel while Razorpay is still answering
+      return original(input);
+    });
+    const cancelsBefore = rz.calls.filter((c) => c.url.endsWith('/cancel')).length;
+    try {
+      await expect(t.c.payments.linkForOrder(o.id)).rejects.toMatchObject({ status: 409 });
+    } finally {
+      spy.mockRestore();
+    }
+    const open = await t.pool.query("SELECT count(*)::int AS n FROM payments WHERE order_id = $1 AND status = 'CREATED'", [o.id]);
+    expect(open.rows[0].n).toBe(0);
+    expect(rz.calls.filter((c) => c.url.endsWith('/cancel')).length).toBe(cancelsBefore + 1); // the just-created link was cancelled
   });
 });

@@ -62,44 +62,66 @@ export class PaymentService {
     const s = await this.settings.get();
     const customer = await this.customers.get(order.customerId);
 
-    return withTx(this.pool, async (c) => {
+    // 1. Fast path: an open, unexpired link is simply reused (no transaction, no lock).
+    const reusable = await this.reusableLink(orderId);
+    if (reusable) return reusable;
+
+    // 2. Ask Razorpay for a new link WITHOUT holding a database connection: a slow or failing provider must never
+    //    starve the pool (health checks and payment webhooks need it). Races are resolved in step 3.
+    const minutes = Math.max(s.payments.linkExpiryMinutes, MIN_EXPIRY_MINUTES);
+    const expiresAt = new Date(Date.now() + minutes * 60_000);
+    const referenceId = `ORD-${order.number}-${randomBytes(3).toString('hex')}`;
+    let link;
+    try {
+      link = await this.razorpay.createPaymentLink({
+        amountCents: order.totalCents,
+        currency: s.currency,
+        referenceId,
+        description: `${s.businessName} order #${order.number}`,
+        customer: { name: customer?.name ?? order.customerName, ...(customer?.phone ? { contact: customer.phone } : {}) },
+        callbackUrl: `${this.publicBaseUrl.replace(/\/$/, '')}/shop/order/${order.publicToken}`,
+        expireBy: expiresAt,
+        notes: { order_id: order.id, order_number: String(order.number) },
+      });
+    } catch (err) {
+      if (!(err instanceof RazorpayError)) throw err;
+      this.logger.error({ status: err.status, detail: err.message }, 'razorpay payment link creation failed');
+      throw new AppError(502, 'PAYMENT_PROVIDER_ERROR', 'Could not create the payment link right now — please try again in a moment.');
+    }
+
+    // 3. Persist under a short per-order lock, re-checking everything that may have changed while we were waiting.
+    const outcome = await withTx(this.pool, async (c) => {
       await c.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`payment-link:${orderId}`]);
+      const o = await c.query<{ status: string; payment_status: string; payment_method: string }>(
+        'SELECT status, payment_status, payment_method FROM orders WHERE id = $1 FOR UPDATE', [orderId]);
+      const now = o.rows[0];
+      if (!now || now.status === 'CANCELLED' || now.payment_status !== 'UNPAID') return { kind: 'rejected' as const };
       const open = await c.query<Payment>(`SELECT ${PAYMENT_COLS} FROM payments WHERE order_id = $1 AND status = 'CREATED'`, [orderId]);
       const current = open.rows[0];
-      if (current && new Date(current.expiresAt).getTime() > Date.now() + 60_000) return current;
-      if (current) {
-        await c.query("UPDATE payments SET status = 'EXPIRED', updated_at = now() WHERE id = $1", [current.id]);
-        await this.razorpay.cancelPaymentLink(current.providerRef).catch((err: unknown) => this.logger.warn({ err: String(err) }, 'could not cancel stale payment link'));
-      }
-      const minutes = Math.max(s.payments.linkExpiryMinutes, MIN_EXPIRY_MINUTES);
-      const expiresAt = new Date(Date.now() + minutes * 60_000);
-      const referenceId = `ORD-${order.number}-${randomBytes(3).toString('hex')}`;
-      let link;
-      try {
-        link = await this.razorpay.createPaymentLink({
-          amountCents: order.totalCents,
-          currency: s.currency,
-          referenceId,
-          description: `${s.businessName} order #${order.number}`,
-          customer: { name: customer?.name ?? order.customerName, ...(customer?.phone ? { contact: customer.phone } : {}) },
-          callbackUrl: `${this.publicBaseUrl.replace(/\/$/, '')}/shop/order/${order.publicToken}`,
-          expireBy: expiresAt,
-          notes: { order_id: order.id, order_number: String(order.number) },
-        });
-      } catch (err) {
-        if (!(err instanceof RazorpayError)) throw err;
-        this.logger.error({ status: err.status, detail: err.message }, 'razorpay payment link creation failed');
-        throw new AppError(502, 'PAYMENT_PROVIDER_ERROR', 'Could not create the payment link right now — please try again in a moment.');
-      }
+      if (current && new Date(current.expiresAt).getTime() > Date.now() + 60_000) return { kind: 'lost' as const, payment: current };
+      if (current) await c.query("UPDATE payments SET status = 'EXPIRED', updated_at = now() WHERE id = $1", [current.id]);
       const { rows } = await c.query<Payment>(
         `INSERT INTO payments (order_id, provider_ref, reference_id, status, amount_cents, currency, short_url, expires_at)
          VALUES ($1, $2, $3, 'CREATED', $4, $5, $6, $7) RETURNING ${PAYMENT_COLS}`,
         [orderId, link.id, referenceId, order.totalCents, s.currency, link.shortUrl, expiresAt]);
-      if (order.paymentMethod !== 'ONLINE') {
-        await c.query("UPDATE orders SET payment_method = 'ONLINE', updated_at = now() WHERE id = $1", [orderId]);
-      }
-      return rows[0]!;
+      if (now.payment_method !== 'ONLINE') await c.query("UPDATE orders SET payment_method = 'ONLINE', updated_at = now() WHERE id = $1", [orderId]);
+      return { kind: 'created' as const, payment: rows[0]!, staleRef: current?.providerRef };
     });
+
+    // 4. Cancel every link we won't use — outside the transaction, best effort (never leave a payable orphan if avoidable).
+    const unused = outcome.kind === 'created' ? outcome.staleRef : link.id;
+    if (unused) {
+      await this.razorpay.cancelPaymentLink(unused)
+        .catch((err: unknown) => this.logger.warn({ err: String(err), link: unused }, 'could not cancel unused payment link'));
+    }
+    if (outcome.kind === 'rejected') throw new ConflictError('Order can no longer be paid online (it was cancelled or paid in the meantime)');
+    return outcome.payment;
+  }
+
+  private async reusableLink(orderId: string): Promise<Payment | undefined> {
+    const { rows } = await this.pool.query<Payment>(`SELECT ${PAYMENT_COLS} FROM payments WHERE order_id = $1 AND status = 'CREATED'`, [orderId]);
+    const current = rows[0];
+    return current && new Date(current.expiresAt).getTime() > Date.now() + 60_000 ? current : undefined;
   }
 
   /**
