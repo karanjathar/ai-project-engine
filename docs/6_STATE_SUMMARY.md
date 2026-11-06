@@ -38,3 +38,4 @@
 
 ## Log
 - **T24** BotReply model, normaliser and plain-text fallback (2026-11-06): Added the channel-neutral BotReply model with normaliseReply (clamps to WhatsApp limits and 64-byte action ids, never throws), renderPlain numbered-text fallback, and numbered-choice resolution. Interactive text is capped at 1024 chars, plain text at 4096.
+- **T25** WhatsApp interactive rendering (buttons, list, cta_url) (2026-11-06): WhatsAppAdapter.sendReply renders normalised BotReplies as Cloud API interactive button, list and cta_url messages, falling back to text when there are no options. ChannelAdapter gained an optional sendReply so adapters without rich UI fall back to numbered text.

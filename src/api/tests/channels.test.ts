@@ -87,3 +87,54 @@ describe('ChannelHub', () => {
     expect(await repo.logInbound({ channel: 'whatsapp', from: '1', text: 'hi', externalId: 'wamid.1' })).toBe(false);
   });
 });
+
+describe('WhatsApp interactive replies (T25)', () => {
+  const wa = () => {
+    const f = fakeFetch();
+    return { f, a: new WhatsAppAdapter({ token: 'T', phoneNumberId: '99', graphVersion: 'v21.0' }, f.fn) };
+  };
+  const base = { messaging_product: 'whatsapp', recipient_type: 'individual', to: '15551234567' };
+
+  it('sends reply buttons', async () => {
+    const { f, a } = wa();
+    await a.sendReply('+1 555 123 4567', { text: 'Welcome!', buttons: [{ id: 'catalog', title: '🛍 Browse' }, { id: 'orders', title: '📦 My orders' }] });
+    expect(f.calls[0]).toMatchObject({ url: 'https://graph.facebook.com/v21.0/99/messages', headers: { authorization: 'Bearer T' } });
+    expect(f.calls[0]!.body).toEqual({
+      ...base, type: 'interactive',
+      interactive: { type: 'button', body: { text: 'Welcome!' }, action: { buttons: [
+        { type: 'reply', reply: { id: 'catalog', title: '🛍 Browse' } },
+        { type: 'reply', reply: { id: 'orders', title: '📦 My orders' } },
+      ] } },
+    });
+  });
+
+  it('sends list messages', async () => {
+    const { f, a } = wa();
+    await a.sendReply('15551234567', { text: 'Pick a product', list: { button: 'Products', sections: [{ title: 'Apparel', rows: [{ id: 'prod:1', title: 'Red Tee', description: '₹499 · 40 left' }, { id: 'prod:2', title: 'Cap' }] }] } });
+    expect(f.calls[0]!.body).toEqual({
+      ...base, type: 'interactive',
+      interactive: { type: 'list', body: { text: 'Pick a product' }, action: { button: 'Products', sections: [
+        { title: 'Apparel', rows: [{ id: 'prod:1', title: 'Red Tee', description: '₹499 · 40 left' }, { id: 'prod:2', title: 'Cap' }] },
+      ] } },
+    });
+  });
+
+  it('sends a URL (cta_url) button', async () => {
+    const { f, a } = wa();
+    await a.sendReply('15551234567', { text: 'Tap to pay securely', link: { label: 'Pay ₹998', url: 'https://rzp.io/i/abc' } });
+    expect(f.calls[0]!.body).toEqual({
+      ...base, type: 'interactive',
+      interactive: { type: 'cta_url', body: { text: 'Tap to pay securely' }, action: { name: 'cta_url', parameters: { display_text: 'Pay ₹998', url: 'https://rzp.io/i/abc' } } },
+    });
+  });
+
+  it('sends plain text when the reply has no options, and normalises over-limit replies', async () => {
+    const { f, a } = wa();
+    await a.sendReply('15551234567', { text: 'Just text' });
+    expect(f.calls[0]!.body).toMatchObject({ type: 'text', text: { body: 'Just text' } });
+    await a.sendReply('15551234567', { text: 'x', buttons: [1, 2, 3, 4].map((n) => ({ id: `b${n}`, title: `Button number ${n} is long` })) });
+    const action = (f.calls[1]!.body as { interactive: { action: { buttons: { reply: { title: string } }[] } } }).interactive.action;
+    expect(action.buttons).toHaveLength(3);
+    expect(action.buttons[0]!.reply.title.length).toBeLessThanOrEqual(20);
+  });
+});
