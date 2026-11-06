@@ -127,10 +127,12 @@ export class OrdersService {
     return rows[0] ? this.get(rows[0].id) : undefined;
   }
 
-  async list(f: { status?: OrderStatus; limit?: number } = {}): Promise<Order[]> {
+  async list(f: { status?: OrderStatus; customerId?: string; limit?: number } = {}): Promise<Order[]> {
     const values: unknown[] = [];
-    let where = '';
-    if (f.status) { values.push(f.status); where = 'WHERE o.status = $1'; }
+    const conds: string[] = [];
+    if (f.status) { values.push(f.status); conds.push(`o.status = $${values.length}`); }
+    if (f.customerId) { values.push(f.customerId); conds.push(`o.customer_id = $${values.length}`); }
+    const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
     values.push(Math.min(f.limit ?? 200, 500));
     const { rows } = await this.pool.query<OrderRow>(`${ORDER_SELECT} ${where} ORDER BY o.number DESC LIMIT $${values.length}`, values);
     if (!rows.length) return [];

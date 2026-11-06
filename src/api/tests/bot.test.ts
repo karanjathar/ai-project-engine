@@ -71,10 +71,10 @@ describe('bot commands', () => {
 });
 
 describe('rich replies (T28)', () => {
-  it('help/unknown input shows the welcome text with a Browse button', async () => {
+  it('help/unknown input shows the welcome text with the tap-to-order menu', async () => {
     const reply = await t.c.bot.handle(wa('hello there'));
     expect(reply.text).toContain('stock <SKU>');
-    expect(reply.buttons).toEqual([{ id: 'catalog', title: '🛍 Browse catalog' }]);
+    expect(reply.buttons).toEqual([{ id: 'catalog', title: '🛍 Browse' }, { id: 'cart', title: '🛒 My cart' }, { id: 'orders', title: '📦 My orders' }]); // FR-R2-7 menu since T33
   });
 
   it('a tapped action is routed like the matching command', async () => {
@@ -108,12 +108,12 @@ describe('numbered replies via the real channel hub (T28)', () => {
     const first = f.calls.at(-1)!.body as { reply_markup: { inline_keyboard: { callback_data: string }[][] } };
     expect(first.reply_markup.inline_keyboard[0]![0]!.callback_data).toBe('catalog');
     const log = (await c.messages.list({ channel: 'telegram', limit: 1 }))[0]!;
-    expect(log.text).toContain('1. 🛍 Browse catalog');
-    expect(await c.messages.lastOptions('telegram', '501')).toEqual([{ id: 'catalog', title: '🛍 Browse catalog' }]);
+    expect(log.text).toContain('1. 🛍 Browse\n2. 🛒 My cart\n3. 📦 My orders');
+    expect(await c.messages.lastOptions('telegram', '501')).toEqual([{ id: 'catalog', title: '🛍 Browse' }, { id: 'cart', title: '🛒 My cart' }, { id: 'orders', title: '📦 My orders' }]);
 
     await c.inbox.receive({ channel: 'telegram', from: '501', text: '1', externalId: 'tg:501:2' });
     expect(String((f.calls.at(-1)!.body as { text: string }).text)).toContain('pick a product'); // "1" → catalog action → interactive catalog
-    await c.inbox.receive({ channel: 'telegram', from: '501', text: '7', externalId: 'tg:501:3' });
+    await c.inbox.receive({ channel: 'telegram', from: '501', text: '7', externalId: 'tg:501:3' }); // no 7th option → welcome
     expect(String((f.calls.at(-1)!.body as { text: string }).text)).toContain('Welcome');
   });
 });
@@ -126,8 +126,8 @@ describe('tap labels in the inbox (T45)', () => {
     await c.inbox.receive({ channel: 'telegram', from: '777', text: 'hey', externalId: 'tg:777:1' });
     await c.inbox.receive({ channel: 'telegram', from: '777', text: 'catalog', action: 'catalog', externalId: 'tgcb:abc' });
     const inbound = (await c.messages.list({ channel: 'telegram', limit: 10 })).filter((m) => m.direction === 'in' && m.externalUser === '777');
-    expect(inbound.map((m) => m.text)).toEqual(['🛍 Browse catalog', 'hey']);
-    expect(events.filter((e) => e.type === 'message.received').map((e) => e.type === 'message.received' && e.text)).toEqual(['hey', '🛍 Browse catalog']);
+    expect(inbound.map((m) => m.text)).toEqual(['🛍 Browse', 'hey']);
+    expect(events.filter((e) => e.type === 'message.received').map((e) => e.type === 'message.received' && e.text)).toEqual(['hey', '🛍 Browse']);
     // unknown action ids fall back to the raw id
     await c.inbox.receive({ channel: 'telegram', from: '777', text: 'zzz', action: 'zzz', externalId: 'tgcb:def' });
     expect((await c.messages.list({ channel: 'telegram', limit: 10 })).find((m) => m.direction === 'in' && m.text === 'zzz')).toBeTruthy();

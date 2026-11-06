@@ -61,7 +61,10 @@ export class ChatFlow {
       if (action === 'checkout') return await this.checkout(msg, money);
       if (action === 'pay:cod') return await this.placeOrder(msg, 'COD', money);
       if (action === 'pay:online') return await this.placeOrder(msg, 'ONLINE', money);
-      if (/^(prod|qty|cat):/.test(action)) return this.sorry('That option is no longer valid.');
+      if (action === 'orders') return await this.myOrders(msg, money);
+      m = /^order:(\d{1,9})$/.exec(action);
+      if (m) return await this.orderDetail(msg, Number(m[1]), money);
+      if (/^(prod|qty|cat|order):/.test(action)) return this.sorry('That option is no longer valid.');
       return undefined;
     } catch (err) {
       if (err instanceof AppError) return this.sorry(err.message);
@@ -203,6 +206,40 @@ export class ChatFlow {
       text: `✅ Order #${order.number} placed — Cash on delivery.\nTotal: ${money(order.totalCents)}\nWe'll confirm shortly.`,
       buttons: [{ id: 'orders', title: '📦 My orders' }, { id: 'catalog', title: '🛍 Keep shopping' }],
     };
+  }
+
+  private static readonly STATUS: Record<Order['status'], string> = { PENDING: 'Pending', CONFIRMED: 'Confirmed', FULFILLED: 'Fulfilled', CANCELLED: 'Cancelled' };
+  private static readonly METHOD: Record<PaymentMethod, string> = { COD: 'Cash on delivery', ONLINE: 'Online' };
+  private static readonly PAYMENT: Record<Order['paymentStatus'], string> = { UNPAID: 'unpaid', PAID: 'paid ✅', REFUND_DUE: 'refund due' };
+
+  private async myOrders(msg: InboundMessage, money: (c: number) => string): Promise<BotReply> {
+    const customer = await this.customers.findOrCreateByChannel(msg.channel, msg.from, msg.senderName);
+    const orders = await this.orders.list({ customerId: customer.id, limit: 5 });
+    if (!orders.length) return { text: 'You have no orders yet.', buttons: [{ id: 'catalog', title: '🛍 Browse' }] };
+    const rows = orders.map((o) => {
+      const items = o.items.reduce((n, i) => n + i.quantity, 0);
+      return {
+        id: `order:${o.number}`,
+        title: `#${o.number} · ${ChatFlow.STATUS[o.status]}`,
+        description: `${money(o.totalCents)} · ${plural(items, 'item')} · ${ChatFlow.METHOD[o.paymentMethod]}`,
+      };
+    });
+    return { text: '📦 Your recent orders:', list: { button: 'My orders', sections: [{ title: 'Recent orders', rows }] } };
+  }
+
+  private async orderDetail(msg: InboundMessage, number: number, money: (c: number) => string): Promise<BotReply> {
+    const customer = await this.customers.findOrCreateByChannel(msg.channel, msg.from, msg.senderName);
+    const order = await this.orders.getByNumber(number);
+    // Same answer for "missing" and "not yours": never reveal other customers' orders.
+    if (!order || order.customerId !== customer.id) return this.sorry("we couldn't find that order.");
+    const text = [
+      `*Order #${order.number}*`,
+      `Status: ${ChatFlow.STATUS[order.status]}`,
+      `Payment: ${ChatFlow.METHOD[order.paymentMethod]} · ${ChatFlow.PAYMENT[order.paymentStatus]}`,
+      ...order.items.map((i) => `${i.quantity} × ${i.name}`),
+      `Total: ${money(order.totalCents)}`,
+    ].join('\n');
+    return { text, buttons: [{ id: 'orders', title: '📦 My orders' }, { id: 'catalog', title: '🛍 Browse' }] };
   }
 
   private sorry(message: string): BotReply {

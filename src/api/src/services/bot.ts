@@ -35,7 +35,10 @@ export class BotService {
     const known = ['stock', 'price', 'catalog', 'menu', 'order', 'status'];
     const isWelcome = !known.includes(first);
     const multiLineOrder = command.split('\n').filter((l) => l.trim()).length > 1 && /^order\s/im.test(command);
-    return isWelcome && !multiLineOrder ? { text, buttons: [{ id: 'catalog', title: '🛍 Browse catalog' }] } : { text };
+    if (!isWelcome || multiLineOrder) return { text };
+    // FR-R2-7: the welcome carries the tap-to-order menu; text commands stay documented in the text.
+    const buttons = this.flow?.menu('').buttons ?? [{ id: 'catalog', title: '🛍 Browse' }];
+    return { text, buttons };
   }
 
   private async handleText(msg: InboundMessage): Promise<string> {

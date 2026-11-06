@@ -162,3 +162,49 @@ describe('cart & checkout (T32)', () => {
     await request(t.app).patch(`/api/products/${id.mug}`).set({ authorization: `Bearer ${await t.token('staff')}` }).send({ isActive: true });
   });
 });
+
+describe('my orders (T33)', () => {
+  const me = '919800000003';
+  const stranger = '919800000099';
+
+  it('no orders yet → friendly message', async () => {
+    const r = await tap('orders', me);
+    expect(r.text).toMatch(/no orders yet/i);
+    expect(r.buttons?.[0]!.id).toBe('catalog');
+  });
+
+  it('lists only my last 5 orders, newest first', async () => {
+    for (let i = 0; i < 6; i++) { await tap(`qty:${id.mug}:1`, me); await tap('pay:cod', me); }
+    await tap(`qty:${id.mug}:1`, stranger); await tap('pay:cod', stranger);
+    const r = await tap('orders', me);
+    const list = rows(r);
+    expect(list).toHaveLength(5);
+    const mine = (await t.c.orders.list({})).filter((o) => o.customerName === 'Meera' && o.channel === 'whatsapp');
+    const myNumbers = new Set(mine.map((o) => o.number));
+    const shown = list.map((x) => Number(/^order:(\d+)$/.exec(x.id)![1]));
+    expect(shown.every((n) => myNumbers.has(n))).toBe(true);
+    expect(shown).toEqual([...shown].sort((a, b) => b - a));
+    expect(list[0]!.title).toMatch(/^#\d+ · Pending$/);
+    expect(list[0]!.description).toBe('₹299.00 · 1 item · Cash on delivery');
+  });
+
+  it('order detail shows status, payment and items — but never someone else’s order', async () => {
+    const mineList = rows(await tap('orders', me));
+    const n = mineList[0]!.id.split(':')[1];
+    const r = await tap(`order:${n}`, me);
+    expect(r.text).toContain(`Order #${n}`);
+    expect(r.text).toContain('Status: Pending');
+    expect(r.text).toContain('Payment: Cash on delivery · unpaid');
+    expect(r.text).toContain('1 × Mug');
+    expect(r.buttons?.map((b) => b.id)).toEqual(['orders', 'catalog']);
+    const strangerOrder = rows(await tap('orders', stranger))[0]!.id.split(':')[1];
+    expect((await tap(`order:${strangerOrder}`, me)).text).toMatch(/couldn't find that order/i);
+    expect((await tap('order:999999', me)).text).toMatch(/couldn't find that order/i);
+  });
+
+  it('typed "hi" or unknown text shows the full menu (FR-R2-7)', async () => {
+    const r = await t.c.bot.handle({ channel: 'whatsapp', from: me, text: 'hi' });
+    expect(r.buttons?.map((b) => b.id)).toEqual(['catalog', 'cart', 'orders']);
+    expect(r.text).toContain('stock <SKU>'); // text commands still documented
+  });
+});
