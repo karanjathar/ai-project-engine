@@ -137,6 +137,7 @@ describe('cart & checkout (T32)', () => {
     t.c.chatFlow.setPaymentOptions({
       available: async () => ({ online: true, cod: false }),
       onlineCheckout: async (order) => ({ text: `PAY-LINK for #${order.number}` }),
+      resendLink: async (order) => ({ text: `RESEND for #${order.number}` }),
     });
     try {
       await tapAs(`qty:${id.mug}:2`);
@@ -147,7 +148,7 @@ describe('cart & checkout (T32)', () => {
       const [order] = await t.c.orders.list({ status: 'PENDING' });
       expect(order).toMatchObject({ paymentMethod: 'ONLINE', totalCents: 59800 });
     } finally {
-      t.c.chatFlow.setPaymentOptions(undefined);
+      t.c.chatFlow.setPaymentOptions(t.c.payments.chatOptions());
     }
   });
 

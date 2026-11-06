@@ -8,6 +8,11 @@ import { AppError } from '../domain/errors.js';
 import type { Payment } from '../domain/types.js';
 import type { EventBus } from '../realtime/bus.js';
 import type { Messenger } from './messenger.js';
+import { RazorpayError } from '../payments/razorpay.js';
+import { renderPlain, type BotReply } from '../channels/reply.js';
+import type { Order } from '../domain/types.js';
+import { formatMoney } from './money.js';
+import type { PaymentOptions } from './chatFlow.js';
 import type { RazorpayClient } from '../payments/razorpay.js';
 import type { CustomersRepo } from '../repositories/customers.js';
 import type { OrdersService } from './orders.js';
@@ -70,16 +75,23 @@ export class PaymentService {
       const minutes = Math.max(s.payments.linkExpiryMinutes, MIN_EXPIRY_MINUTES);
       const expiresAt = new Date(Date.now() + minutes * 60_000);
       const referenceId = `ORD-${order.number}-${randomBytes(3).toString('hex')}`;
-      const link = await this.razorpay.createPaymentLink({
-        amountCents: order.totalCents,
-        currency: s.currency,
-        referenceId,
-        description: `${s.businessName} order #${order.number}`,
-        customer: { name: customer?.name ?? order.customerName, ...(customer?.phone ? { contact: customer.phone } : {}) },
-        callbackUrl: `${this.publicBaseUrl.replace(/\/$/, '')}/shop/order/${order.publicToken}`,
-        expireBy: expiresAt,
-        notes: { order_id: order.id, order_number: String(order.number) },
-      });
+      let link;
+      try {
+        link = await this.razorpay.createPaymentLink({
+          amountCents: order.totalCents,
+          currency: s.currency,
+          referenceId,
+          description: `${s.businessName} order #${order.number}`,
+          customer: { name: customer?.name ?? order.customerName, ...(customer?.phone ? { contact: customer.phone } : {}) },
+          callbackUrl: `${this.publicBaseUrl.replace(/\/$/, '')}/shop/order/${order.publicToken}`,
+          expireBy: expiresAt,
+          notes: { order_id: order.id, order_number: String(order.number) },
+        });
+      } catch (err) {
+        if (!(err instanceof RazorpayError)) throw err;
+        this.logger.error({ status: err.status, detail: err.message }, 'razorpay payment link creation failed');
+        throw new AppError(502, 'PAYMENT_PROVIDER_ERROR', 'Could not create the payment link right now — please try again in a moment.');
+      }
       const { rows } = await c.query<Payment>(
         `INSERT INTO payments (order_id, provider_ref, reference_id, status, amount_cents, currency, short_url, expires_at)
          VALUES ($1, $2, $3, 'CREATED', $4, $5, $6, $7) RETURNING ${PAYMENT_COLS}`,
@@ -89,6 +101,69 @@ export class PaymentService {
       }
       return rows[0]!;
     });
+  }
+
+  /** Pay-link message for a customer: amount, validity, and a URL button. */
+  async linkReply(order: Order, p: Payment, isNew = false): Promise<BotReply> {
+    const s = await this.settings.get();
+    const money = formatMoney(order.totalCents, s.currency);
+    const mins = Math.max(0, Math.round((new Date(p.expiresAt).getTime() - Date.now()) / 60_000));
+    const valid = mins >= 120 ? `${Math.round(mins / 60)} hours` : `${mins} minutes`;
+    return {
+      text: `${isNew ? `✅ Order #${order.number} created.\n` : ''}💳 Total ${money}. Tap the button below to pay securely (UPI, card or netbanking). This link is valid for ${valid}.`,
+      link: { label: `Pay ${money}`, url: p.shortUrl },
+    };
+  }
+
+  /** What the chat checkout uses: online availability from live config, and the pay-link replies. */
+  chatOptions(): PaymentOptions {
+    const reply = async (order: Order, isNew: boolean): Promise<BotReply> => {
+      try {
+        return await this.linkReply(order, await this.linkForOrder(order.id), isNew);
+      } catch (err) {
+        if (err instanceof AppError && err.status === 409) return { text: `Sorry — ${err.message}.` };
+        if (!(err instanceof AppError)) this.logger.error({ err: String(err) }, 'unexpected error creating payment link');
+        return {
+          text: `${isNew ? `✅ Order #${order.number} is created, but we` : 'We'} couldn't create the payment link right now. Please try again in a moment.`,
+          buttons: [{ id: `paylink:${order.number}`, title: '🔁 Try again' }, { id: 'orders', title: '📦 My orders' }],
+        };
+      }
+    };
+    return {
+      available: async () => {
+        const cfg = await this.config();
+        return { online: cfg.onlineAvailable, cod: cfg.codEnabled };
+      },
+      onlineCheckout: (order) => reply(order, true),
+      resendLink: (order) => reply(order, false),
+    };
+  }
+
+  /** Staff action: get (and optionally deliver) the pay link of an order. */
+  async sendLink(orderId: string, notify: boolean): Promise<{ url: string; expiresAt: string; notified: boolean }> {
+    const payment = await this.linkForOrder(orderId);
+    let notified = false;
+    if (notify) {
+      const order = (await this.orders.get(orderId))!;
+      notified = await this.sendToCustomer(order, await this.linkReply(order, payment));
+    }
+    return { url: payment.shortUrl, expiresAt: payment.expiresAt, notified };
+  }
+
+  /** Delivers a message on the customer's own chat channel. Returns false for web/manual customers. */
+  private async sendToCustomer(order: Order, reply: BotReply): Promise<boolean> {
+    if (!['whatsapp', 'messenger', 'instagram', 'telegram'].includes(order.channel)) return false;
+    const customer = await this.customers.get(order.customerId);
+    if (!customer?.channelUserId) return false;
+    const channel = order.channel as 'whatsapp' | 'messenger' | 'instagram' | 'telegram';
+    try {
+      if (this.messenger.reply) await this.messenger.reply(channel, customer.channelUserId, reply);
+      else await this.messenger.send(channel, customer.channelUserId, renderPlain(reply));
+      return true;
+    } catch (err) {
+      this.logger.warn({ err: String(err), channel }, 'customer payment message failed');
+      return false;
+    }
   }
 
   /**
@@ -147,9 +222,13 @@ export class PaymentService {
     if (!settled.good) {
       if (!settled.fresh) return; // staff were already alerted when it was first settled
       await this.alertStaff(`⚠️ Payment received for order #${order.number} but it needs attention (amount mismatch or order cancelled). Refund due in Razorpay.`);
+      await this.sendToCustomer(order, { text: REFUND_NOTICE(order.number) });
       return;
     }
-    if (order.status !== 'PENDING') return; // staff already confirmed it manually
+    if (order.status !== 'PENDING') { // staff already confirmed it manually: confirm the payment to the customer
+      if (settled.fresh) await this.sendToCustomer(order, { text: `✅ Payment received for order #${order.number}. Thank you!` });
+      return;
+    }
     try {
       await this.orders.confirm(order.id, undefined, null); // auto-confirm from the default warehouse
     } catch (err) {
@@ -158,6 +237,7 @@ export class PaymentService {
       order = (await this.orders.get(order.id))!;
       this.events.publish({ type: 'payment.updated', orderId: order.id, number: order.number, paymentStatus: 'REFUND_DUE' });
       await this.alertStaff(`⚠️ Order #${order.number} was paid online but could not be confirmed (${err.message}). Please refund the customer in Razorpay.`);
+      await this.sendToCustomer(order, { text: REFUND_NOTICE(order.number) });
     }
   }
 
@@ -168,6 +248,8 @@ export class PaymentService {
     }
   }
 }
+
+const REFUND_NOTICE = (n: number) => `We received your payment for order #${n} but couldn't complete the order. We'll refund you shortly — sorry for the trouble.`;
 
 // Permissive on purpose: only the fields we act on are checked (docs/3_SCHEMAS.md §3.11).
 const webhookSchema = z.object({

@@ -20,10 +20,13 @@ export interface PaymentOptions {
   available(): Promise<{ online: boolean; cod: boolean }>;
   /** Reply for a freshly created ONLINE order (e.g. a pay-link button). */
   onlineCheckout(order: Order, msg: InboundMessage): Promise<BotReply>;
+  /** Reply with a (re)sent pay link for an existing unpaid ONLINE order. */
+  resendLink(order: Order, msg: InboundMessage): Promise<BotReply>;
 }
 const CASH_ONLY: PaymentOptions = {
   available: async () => ({ online: false, cod: true }),
   onlineCheckout: async (order) => ({ text: `Order #${order.number} created. We'll send your payment link shortly.` }),
+  resendLink: async () => ({ text: 'Online payment is not available right now.' }),
 };
 
 /** Tap-to-order conversation (docs/3_SCHEMAS.md §3.12). Returns undefined for actions it doesn't own. */
@@ -62,9 +65,11 @@ export class ChatFlow {
       if (action === 'pay:cod') return await this.placeOrder(msg, 'COD', money);
       if (action === 'pay:online') return await this.placeOrder(msg, 'ONLINE', money);
       if (action === 'orders') return await this.myOrders(msg, money);
+      m = /^paylink:(\d{1,9})$/.exec(action);
+      if (m) return await this.payLink(msg, Number(m[1]));
       m = /^order:(\d{1,9})$/.exec(action);
       if (m) return await this.orderDetail(msg, Number(m[1]), money);
-      if (/^(prod|qty|cat|order):/.test(action)) return this.sorry('That option is no longer valid.');
+      if (/^(prod|qty|cat|order|paylink):/.test(action)) return this.sorry('That option is no longer valid.');
       return undefined;
     } catch (err) {
       if (err instanceof AppError) return this.sorry(err.message);
@@ -245,6 +250,19 @@ export class ChatFlow {
       `Total: ${money(order.totalCents)}`,
     ].join('\n');
     return { text, buttons: [{ id: 'orders', title: '📦 My orders' }, { id: 'catalog', title: '🛍 Browse' }] };
+  }
+
+  /** paylink:<n> — (re)send the pay link for my own unpaid online order. */
+  private async payLink(msg: InboundMessage, number: number): Promise<BotReply> {
+    const customer = await this.customers.findOrCreateByChannel(msg.channel, msg.from, msg.senderName);
+    const order = await this.orders.getByNumber(number);
+    if (!order || order.customerId !== customer.id) return this.sorry("we couldn't find that order.");
+    const back = [{ id: 'orders', title: '📦 My orders' }, { id: 'catalog', title: '🛍 Browse' }];
+    if (order.status === 'CANCELLED') return { text: `Order #${order.number} was cancelled, so there is nothing to pay.`, buttons: back };
+    if (order.paymentStatus === 'PAID') return { text: `✅ Order #${order.number} is already paid. Thank you!`, buttons: back };
+    if (order.paymentStatus === 'REFUND_DUE') return { text: `We received a payment for order #${order.number} and a refund is being arranged.`, buttons: back };
+    if (order.paymentMethod === 'COD') return { text: `Order #${order.number} is cash on delivery — nothing to pay online.`, buttons: back };
+    return this.payments.resendLink(order, msg);
   }
 
   private sorry(message: string): BotReply {

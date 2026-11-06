@@ -7,7 +7,9 @@ import type { SettingsService } from './settings.js';
 const CHAT_CHANNELS: readonly string[] = ['whatsapp', 'messenger', 'instagram', 'telegram'];
 
 const TEMPLATES: Partial<Record<OrderStatus, (o: Order, total: string, shop: string) => string>> = {
-  CONFIRMED: (o, total, shop) => `✅ ${shop}: your order #${o.number} (${total}) is confirmed and being prepared.`,
+  CONFIRMED: (o, total, shop) => (o.paymentStatus === 'PAID'
+    ? `✅ ${shop}: payment of ${total} received — your order #${o.number} is confirmed and being prepared.`
+    : `✅ ${shop}: your order #${o.number} (${total}) is confirmed and being prepared.`),
   FULFILLED: (o, _t, shop) => `📦 ${shop}: your order #${o.number} has been fulfilled. Thank you for shopping with us!`,
   CANCELLED: (o, _t, shop) => `❌ ${shop}: your order #${o.number} has been cancelled. Reply "help" if you have questions.`,
 };
