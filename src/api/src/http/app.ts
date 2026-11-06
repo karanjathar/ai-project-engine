@@ -1,20 +1,15 @@
-import express, { type Express } from 'express';
+import express, { Router, type Express } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
-import type pg from 'pg';
-import type { Logger } from 'pino';
-import type { Env } from '../config/env.js';
+import type { Container } from '../container.js';
 import { errorHandler, notFoundHandler } from './middleware/errors.js';
+import { requireAuth } from './middleware/auth.js';
+import { authRoutes } from './routes/auth.js';
+import { userRoutes } from './routes/users.js';
 
-export interface AppDeps {
-  env: Env;
-  pool: pg.Pool;
-  logger?: Logger;
-}
-
-export function createApp(deps: AppDeps): Express {
-  const { env, pool, logger } = deps;
+export function createApp(c: Container): Express {
+  const { env, pool, logger } = c;
   const app = express();
   app.disable('x-powered-by');
   app.set('trust proxy', 1); // Azure Container Apps ingress
@@ -49,8 +44,13 @@ export function createApp(deps: AppDeps): Express {
     }
   });
 
-  const api = express.Router();
+  const api = Router();
   api.use(rateLimit({ windowMs: 60_000, limit: env.NODE_ENV === 'test' ? 10_000 : 600, standardHeaders: true, legacyHeaders: false }));
+  api.use('/auth', authRoutes(c));
+
+  // Each group below requires a valid token.
+  const secure = requireAuth(c.auth);
+  api.use('/users', secure, userRoutes(c));
 
   app.use('/api', api);
   app.use('/api', notFoundHandler);

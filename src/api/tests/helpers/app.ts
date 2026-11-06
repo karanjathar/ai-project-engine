@@ -1,14 +1,53 @@
 import type pg from 'pg';
 import type { Express } from 'express';
+import request from 'supertest';
 import { freshDb } from './db.js';
 import { createApp } from '../../src/http/app.js';
-import { loadEnv } from '../../src/config/env.js';
+import { loadEnv, type Env } from '../../src/config/env.js';
+import { createContainer, type Container, type ContainerOverrides } from '../../src/container.js';
+import type { Role } from '../../src/domain/types.js';
 
-export interface TestApp { app: Express; pool: pg.Pool; close(): Promise<void> }
+export interface TestApp {
+  app: Express;
+  pool: pg.Pool;
+  c: Container;
+  env: Env;
+  /** Returns a bearer token for a freshly created user with the given role. */
+  token(role: Role): Promise<string>;
+  close(): Promise<void>;
+}
 
-export async function buildTestApp(): Promise<TestApp> {
+export const TEST_ENV = {
+  NODE_ENV: 'test',
+  DATABASE_URL: 'postgres://test',
+  JWT_SECRET: 'test-secret-'.padEnd(40, 'x'),
+  ADMIN_EMAIL: 'admin@test.local',
+  ADMIN_PASSWORD: 'AdminPass123!',
+  META_APP_SECRET: 'meta-secret',
+  META_VERIFY_TOKEN: 'verify-me',
+  TELEGRAM_WEBHOOK_SECRET: 'tg-secret',
+};
+
+export async function buildTestApp(envOverrides: Record<string, string> = {}, overrides: ContainerOverrides = {}): Promise<TestApp> {
   const pool = await freshDb();
-  const env = loadEnv({ NODE_ENV: 'test', DATABASE_URL: 'postgres://test', JWT_SECRET: 'test-secret-'.padEnd(40, 'x') });
-  const app = createApp({ env, pool });
-  return { app, pool, close: () => pool.end() };
+  const env = loadEnv({ ...TEST_ENV, ...envOverrides });
+  const c = createContainer({ env, pool, ...overrides });
+  await c.auth.bootstrapAdmin(env.ADMIN_EMAIL, env.ADMIN_PASSWORD);
+  const app = createApp(c);
+  let n = 0;
+  const tokens = new Map<Role, string>();
+  return {
+    app, pool, c, env,
+    async token(role) {
+      const cached = tokens.get(role);
+      if (cached) return cached;
+      const email = `${role}${++n}@test.local`;
+      await c.auth.createUser({ email, password: 'Password123!', name: `${role} user`, role });
+      const res = await request(app).post('/api/auth/login').send({ email, password: 'Password123!' });
+      const token = res.body.token as string;
+      tokens.set(role, token);
+      return token;
+    },
+    close: () => pool.end(),
+  };
 }
