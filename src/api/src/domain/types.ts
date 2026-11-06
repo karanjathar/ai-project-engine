@@ -25,7 +25,7 @@ export interface Order { id: string; number: number; customerId: string; custome
 export interface AlertRecipient { channel: ChannelName; to: string }
 export interface CustomFieldDef { key: string; label: string; type: 'text' | 'number' | 'select'; options?: string[] }
 export interface Settings { businessName: string; currency: string; whatsappNumber: string; defaultWarehouseId: string | null;
-  alertRecipients: AlertRecipient[]; customFields: CustomFieldDef[] }
+  alertRecipients: AlertRecipient[]; customFields: CustomFieldDef[]; payments: PaymentSettings }
 export interface ChannelMessage { id: string; channel: ChannelName; direction: 'in' | 'out'; externalUser: string; text: string; status: string; createdAt: string }
 /** `action` is the id of a tapped button / list row / quick reply (docs/3_SCHEMAS.md §3.12); absent for typed text. */
 export interface InboundMessage { channel: ChannelName; from: string; text: string; action?: string; externalId?: string; senderName?: string }

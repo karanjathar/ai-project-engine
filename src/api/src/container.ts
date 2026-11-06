@@ -24,6 +24,8 @@ import { WhatsAppAdapter } from './channels/whatsapp.js';
 import { MetaPageAdapter } from './channels/metaPage.js';
 import { TelegramAdapter } from './channels/telegram.js';
 import { ImageStorage } from './storage/blob.js';
+import { RazorpayClient } from './payments/razorpay.js';
+import { PaymentService } from './services/payments.js';
 
 export interface ContainerOverrides {
   logger?: Logger;
@@ -72,8 +74,10 @@ export function createContainer(opts: { env: Env; pool: pg.Pool } & ContainerOve
   const chatFlow = new ChatFlow(repos.products, repos.categories, customers, carts, settings, orders);
   const bot = new BotService(repos.products, orders, customers, settings, chatFlow);
   const inbox = new InboxService(messages, events, bot, messenger, logger);
+  const razorpay = new RazorpayClient({ keyId: env.RAZORPAY_KEY_ID, keySecret: env.RAZORPAY_KEY_SECRET, webhookSecret: env.RAZORPAY_WEBHOOK_SECRET, apiBase: env.RAZORPAY_API_BASE }, fetchFn);
+  const payments = new PaymentService(pool, razorpay, settings, orders, customers, env.PUBLIC_BASE_URL, logger);
   const images = new ImageStorage(env.AZURE_STORAGE_CONNECTION_STRING, env.AZURE_STORAGE_CONTAINER);
-  return { env, pool, logger, repos, auth, stock, customers, settings, events, orders, alerts, messages, hub, messenger, bot, inbox, images, carts, chatFlow };
+  return { env, pool, logger, repos, auth, stock, customers, settings, events, orders, alerts, messages, hub, messenger, bot, inbox, images, carts, chatFlow, razorpay, payments };
 }
 
 export type Container = ReturnType<typeof createContainer>;
