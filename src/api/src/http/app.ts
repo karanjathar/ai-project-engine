@@ -10,6 +10,7 @@ import { userRoutes } from './routes/users.js';
 import { stockRoutes } from './routes/stock.js';
 import { settingsRoutes } from './routes/settings.js';
 import { sseHandler } from '../realtime/sse.js';
+import { orderRoutes } from './routes/orders.js';
 import { categoryRoutes, customerRoutes, productRoutes, supplierRoutes, warehouseRoutes } from './routes/catalog.js';
 
 export function createApp(c: Container): Express {
@@ -63,6 +64,7 @@ export function createApp(c: Container): Express {
   api.use('/customers', secure, customerRoutes(c));
   api.use('/settings', secure, settingsRoutes(c));
   api.get('/events', secure, sseHandler(c.events));
+  api.use('/orders', secure, orderRoutes(c));
 
   app.use('/api', api);
   app.use('/api', notFoundHandler);

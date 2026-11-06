@@ -10,6 +10,7 @@ import { AuthService } from './services/auth.js';
 import { StockService } from './services/stock.js';
 import { SettingsService } from './services/settings.js';
 import { EventBus } from './realtime/bus.js';
+import { OrdersService } from './services/orders.js';
 
 export interface ContainerOverrides {
   logger?: Logger;
@@ -38,7 +39,8 @@ export function createContainer(opts: { env: Env; pool: pg.Pool } & ContainerOve
   });
   const customers = new CustomersRepo(pool);
   const settings = new SettingsService(pool);
-  return { env, pool, logger, repos, auth, stock, customers, settings, events };
+  const orders = new OrdersService(pool, stock, settings, events, (err) => logger.error({ err }, 'order observer failed'));
+  return { env, pool, logger, repos, auth, stock, customers, settings, events, orders };
 }
 
 export type Container = ReturnType<typeof createContainer>;

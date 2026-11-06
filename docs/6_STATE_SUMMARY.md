@@ -11,3 +11,4 @@
 - **T08:** Added supplier and customer CRUD with email/phone validation. CustomersRepo.findOrCreateByChannel idempotently maps a chat identity (e.g. a WhatsApp number) to a customer record.
 - **T09:** Added SettingsService (JSONB key/value merged over defaults) for business name, currency, WhatsApp number, default warehouse, alert recipients and custom field definitions. Admins change them via PUT /api/settings without redeploying.
 - **T10:** Added an in-process EventBus and an authenticated /api/events Server-Sent Events stream with heartbeats and a connection cap. Stock changes now publish stock.changed events carrying the new warehouse and total quantities.
+- **T11:** Added OrdersService: create (price snapshot, merged lines), confirm (all-or-nothing stock deduction from the chosen or default warehouse), fulfill, and cancel (restocks confirmed orders). Every transition publishes realtime events and calls status observers, which customer notifications will use.
