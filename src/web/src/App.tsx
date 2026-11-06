@@ -9,6 +9,10 @@ import { Products } from './pages/Products';
 import { Inventory } from './pages/Inventory';
 import { Movements } from './pages/Movements';
 import { Customers, Suppliers, Warehouses } from './pages/Parties';
+import { Orders } from './pages/Orders';
+import { Inbox } from './pages/Inbox';
+import { SettingsPage } from './pages/SettingsPage';
+import { Users } from './pages/Users';
 import type { Role } from './api/types';
 
 function RequireAuth({ children, role = 'viewer' }: { children: ReactNode; role?: Role }) {
@@ -32,6 +36,10 @@ export function App() {
         <Route path="warehouses" element={<Warehouses />} />
         <Route path="suppliers" element={<Suppliers />} />
         <Route path="customers" element={<Customers />} />
+        <Route path="orders" element={<Orders />} />
+        <Route path="inbox" element={<Inbox />} />
+        <Route path="settings" element={<RequireAuth role="admin"><SettingsPage /></RequireAuth>} />
+        <Route path="users" element={<RequireAuth role="admin"><Users /></RequireAuth>} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

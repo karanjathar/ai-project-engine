@@ -29,5 +29,5 @@ Each task is TDD: failing test → implementation → `npm run typecheck && npm 
 - [x] T19 Web scaffold: Vite + React + router, API client, auth context, layout, login (test: login form)
 - [x] T20 Dashboard (KPIs + live SSE feed), Products (dynamic custom fields, image upload), Categories
 - [x] T21 Inventory (levels, receive/issue/adjust/transfer), Movements, Warehouses
-- [ ] T22 Orders, Customers, Suppliers, Inbox (send reply), Settings, Users
+- [x] T22 Orders, Customers, Suppliers, Inbox (send reply), Settings, Users
 - [ ] T23 Public Shop (cart, checkout, WhatsApp deep link) + PWA manifest/service worker
