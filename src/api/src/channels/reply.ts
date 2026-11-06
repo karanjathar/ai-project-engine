@@ -27,9 +27,19 @@ export const LIMITS = {
   actionBytes: 64,
 } as const;
 
+/**
+ * Shortens to at most `max` UTF-16 units without ever splitting a code point (emoji, CJK supplementary chars):
+ * Meta doesn't specify how emoji count, so we satisfy the stricter UTF-16 interpretation.
+ */
 export function truncate(s: string, max: number): string {
   const clean = s.replace(/\s+/g, ' ').trim();
-  return clean.length <= max ? clean : `${clean.slice(0, max - 1).trimEnd()}…`;
+  if (clean.length <= max) return clean;
+  let out = '';
+  for (const cp of clean) {
+    if (out.length + cp.length > max - 1) break;
+    out += cp;
+  }
+  return `${out.trimEnd()}…`;
 }
 
 const validId = (id: string) => id.length > 0 && Buffer.byteLength(id, 'utf8') <= LIMITS.actionBytes;

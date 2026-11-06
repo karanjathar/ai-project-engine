@@ -65,3 +65,18 @@ describe('renderPlain & numbered choices', () => {
     expect(resolveNumberedChoice('order TEE 2', opts)).toBeUndefined();
   });
 });
+
+describe('unicode-safe truncation (T44)', () => {
+  const lone = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+  it('never splits an emoji at the cut boundary', () => {
+    const name = 'Mango Pickle Jars 🥭 extra large'; // emoji straddles the 20-char cut
+    const r = normaliseReply({ text: 't', buttons: [{ id: 'a', title: name }] });
+    expect(lone.test(r.buttons![0]!.title)).toBe(false);
+    // whole code points only, AND within the stricter UTF-16 length (Meta doesn't specify how emoji are counted)
+    expect(r.buttons![0]!.title).toBe('Mango Pickle Jars…');
+    expect(r.buttons![0]!.title.length).toBeLessThanOrEqual(20);
+    const list = normaliseReply({ text: 't', list: { button: 'Choose', sections: [{ title: 'S', rows: [{ id: 'p', title: 'Premium Basmati Rice 🍚🍚 5kg', description: '🌶'.repeat(80) }] }] } });
+    const row = list.list!.sections[0]!.rows[0]!;
+    expect(lone.test(row.title) || lone.test(row.description ?? '')).toBe(false);
+  });
+});
