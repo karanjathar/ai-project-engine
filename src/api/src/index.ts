@@ -26,7 +26,8 @@ async function main(): Promise<void> {
   const admin = await c.auth.bootstrapAdmin(env.ADMIN_EMAIL, env.ADMIN_PASSWORD);
   if (admin) logger.warn({ email: admin.email }, 'bootstrap admin created: change this password after first login');
   if (c.images.isConfigured()) {
-    await c.images.ensureContainer().catch((err: unknown) => logger.warn({ err }, 'could not ensure blob container'));
+    // Best effort and non-blocking: storage being slow/unreachable must never delay startup or health probes.
+    void c.images.ensureContainer().catch((err: unknown) => logger.warn({ err: String(err) }, 'could not ensure blob container'));
   }
 
   const here = path.dirname(fileURLToPath(import.meta.url));

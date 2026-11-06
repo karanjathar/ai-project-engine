@@ -1,0 +1,79 @@
+# Local / staging topology: App + PostgreSQL + Azurite (Azure Blob Storage emulator).
+#   docker compose up --build      →  http://localhost:8080  (shop: /shop)
+# Secrets come from .env (git-ignored). Values below are local-only defaults.
+name: stocksync
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: stocksync
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-stocksync-local}
+      POSTGRES_DB: inventory
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U stocksync -d inventory"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite:latest
+    command: azurite-blob --blobHost 0.0.0.0 --blobPort 10000 --loose --skipApiVersionCheck
+    ports:
+      - "10000:10000"
+    volumes:
+      - blobdata:/data
+
+  app:
+    build: .
+    image: stocksync:local
+    depends_on:
+      db:
+        condition: service_healthy
+      azurite:
+        condition: service_started
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      NODE_ENV: production
+      PORT: 8080
+      PUBLIC_BASE_URL: http://localhost:8080
+      DATABASE_URL: postgres://stocksync:${POSTGRES_PASSWORD:-stocksync-local}@db:5432/inventory
+      DATABASE_SSL: "false"
+      JWT_SECRET: ${JWT_SECRET:-local-dev-only-jwt-secret-change-me-0123456789}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-ChangeMe123!}
+      # Browser-facing Blob endpoint (the browser uploads straight to Azurite on the host port).
+      # Azurite's well-known public development key — not a secret.
+      AZURE_STORAGE_CONNECTION_STRING: DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://127.0.0.1:10000/devstoreaccount1;
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
+  # One-shot: create the public-read image container and CORS rule in Azurite (reached by service name).
+  storage-init:
+    image: stocksync:local
+    depends_on:
+      app:
+        condition: service_started
+    restart: "no"
+    working_dir: /app/src/api
+    command:
+      - node
+      - -e
+      - |
+        const { BlobServiceClient } = require('@azure/storage-blob');
+        const cs = 'DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;';
+        const svc = BlobServiceClient.fromConnectionString(cs);
+        (async () => {
+          await svc.setProperties({ cors: [{ allowedOrigins: 'http://localhost:8080', allowedMethods: 'PUT,GET,HEAD,OPTIONS', allowedHeaders: '*', exposedHeaders: '*', maxAgeInSeconds: 3600 }] });
+          await svc.getContainerClient('product-images').createIfNotExists({ access: 'blob' });
+          console.log('azurite ready');
+        })().catch((e) => { console.error(e); process.exit(1); });
+
+volumes:
+  pgdata:
+  blobdata:
