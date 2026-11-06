@@ -168,3 +168,43 @@ describe('POST /api/orders/:id/payment-link (T37)', () => {
     expect((await request(t.app).post(`/api/orders/${order.id}/payment-link`).set(auth(staff)).send({})).status).toBe(409);
   });
 });
+
+describe('cancelling a paid order (T47)', () => {
+  const who = '919822220010';
+  it('flags REFUND_DUE, alerts staff, restocks, and sends the customer ONE message that mentions the refund', async () => {
+    await t.c.settings.update({ alertRecipients: [{ channel: 'whatsapp', to: 'STAFF' }] });
+    const events: unknown[] = [];
+    const off = t.c.events.subscribe((e) => events.push(e));
+    const { order } = await checkoutOnline(1, who);
+    const plink = (await t.pool.query('SELECT provider_ref FROM payments WHERE order_id = $1', [order.id])).rows[0].provider_ref as string;
+    await pay(plink, 1500, 'evt_c47_1');
+    expect(await t.c.orders.get(order.id)).toMatchObject({ status: 'CONFIRMED', paymentStatus: 'PAID' });
+    const stockBefore = (await t.c.stock.levels({ productId: ids.tee.id }))[0]!.quantity;
+    const msgsBefore = toBuyer(who).length;
+
+    await t.c.orders.cancel(order.id, null);
+
+    expect(await t.c.orders.get(order.id)).toMatchObject({ status: 'CANCELLED', paymentStatus: 'REFUND_DUE' });
+    expect((await t.c.stock.levels({ productId: ids.tee.id }))[0]!.quantity).toBe(stockBefore + 1);
+    const msgs = toBuyer(who).slice(msgsBefore);
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0]).toMatch(/cancelled/i);
+    expect(msgs[0]).toMatch(/₹15\.00 will be refunded/);
+    expect(sent.some((m) => m.to === 'STAFF' && m.text.includes(`#${order.number}`) && /cancelled/i.test(m.text) && /refund/i.test(m.text))).toBe(true);
+    expect(events).toContainEqual({ type: 'payment.updated', orderId: order.id, number: order.number, paymentStatus: 'REFUND_DUE' });
+    off();
+    await expect(t.c.orders.cancel(order.id, null)).rejects.toMatchObject({ status: 409 }); // no double flagging
+  });
+
+  it('leaves unpaid online orders and cash-on-delivery orders alone', async () => {
+    const unpaid = await checkoutOnline(1, '919822220011');
+    await t.c.orders.cancel(unpaid.order.id, null);
+    expect((await t.c.orders.get(unpaid.order.id))!.paymentStatus).toBe('UNPAID');
+    expect(toBuyer('919822220011').at(-1)).not.toMatch(/refund/i);
+    await tap(`qty:${ids.tee.id}:1`, '919822220012');
+    await tap('pay:cod', '919822220012');
+    const cod = (await t.c.orders.list({ customerId: (await t.c.customers.findOrCreateByChannel('whatsapp', '919822220012', 'Priya')).id, limit: 1 }))[0]!;
+    await t.c.orders.cancel(cod.id, null);
+    expect((await t.c.orders.get(cod.id))!.paymentStatus).toBe('UNPAID');
+  });
+});

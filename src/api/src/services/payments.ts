@@ -10,7 +10,7 @@ import type { EventBus } from '../realtime/bus.js';
 import type { Messenger } from './messenger.js';
 import { RazorpayError } from '../payments/razorpay.js';
 import { renderPlain, type BotReply } from '../channels/reply.js';
-import type { Order } from '../domain/types.js';
+import type { Order, OrderStatus } from '../domain/types.js';
 import { formatMoney } from './money.js';
 import type { PaymentOptions } from './chatFlow.js';
 import type { RazorpayClient } from '../payments/razorpay.js';
@@ -101,6 +101,21 @@ export class PaymentService {
       }
       return rows[0]!;
     });
+  }
+
+  /**
+   * Order status observer. Cancelling an order that was already paid must flag the refund (it would otherwise
+   * be forgotten: stock is restocked but the money stays). The notifier already told the customer.
+   */
+  async onOrderStatusChange(order: Order, previous: OrderStatus | null): Promise<void> {
+    if (order.status !== 'CANCELLED' || previous === null) return;
+    // Decided on the database row, not the (possibly stale) order object, so a concurrent webhook can't be missed.
+    const flagged = await this.pool.query(
+      "UPDATE orders SET payment_status = 'REFUND_DUE', updated_at = now() WHERE id = $1 AND payment_status = 'PAID' RETURNING id", [order.id]);
+    if (!flagged.rowCount) return;
+    this.events.publish({ type: 'payment.updated', orderId: order.id, number: order.number, paymentStatus: 'REFUND_DUE' });
+    const money = formatMoney(order.totalCents, (await this.settings.get()).currency);
+    await this.alertStaff(`⚠️ Paid order #${order.number} (${money}) was cancelled — refund the customer in Razorpay.`);
   }
 
   /** Pay-link message for a customer: amount, validity, and a URL button. */

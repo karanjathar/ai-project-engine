@@ -78,6 +78,7 @@ export function createContainer(opts: { env: Env; pool: pg.Pool } & ContainerOve
   const payments = new PaymentService(pool, razorpay, settings, orders, customers, env.PUBLIC_BASE_URL, logger, events, messenger);
   const images = new ImageStorage(env.AZURE_STORAGE_CONNECTION_STRING, env.AZURE_STORAGE_CONTAINER);
   chatFlow.setPaymentOptions(payments.chatOptions());
+  orders.onStatusChange((order, previous) => payments.onOrderStatusChange(order, previous));
   return { env, pool, logger, repos, auth, stock, customers, settings, events, orders, alerts, messages, hub, messenger, bot, inbox, images, carts, chatFlow, razorpay, payments };
 }
 

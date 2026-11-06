@@ -11,7 +11,9 @@ const TEMPLATES: Partial<Record<OrderStatus, (o: Order, total: string, shop: str
     ? `✅ ${shop}: payment of ${total} received — your order #${o.number} is confirmed and being prepared.`
     : `✅ ${shop}: your order #${o.number} (${total}) is confirmed and being prepared.`),
   FULFILLED: (o, _t, shop) => `📦 ${shop}: your order #${o.number} has been fulfilled. Thank you for shopping with us!`,
-  CANCELLED: (o, _t, shop) => `❌ ${shop}: your order #${o.number} has been cancelled. Reply "help" if you have questions.`,
+  CANCELLED: (o, total, shop) => (o.paymentStatus === 'PAID'
+    ? `❌ ${shop}: your order #${o.number} has been cancelled. Your payment of ${total} will be refunded.`
+    : `❌ ${shop}: your order #${o.number} has been cancelled. Reply "help" if you have questions.`),
 };
 
 /** Order observer: tells chat customers when their order changes status. */
