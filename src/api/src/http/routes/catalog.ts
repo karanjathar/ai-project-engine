@@ -68,3 +68,16 @@ export function warehouseRoutes(c: Container): Router {
   });
   return crudRoutes({ entity: 'Warehouse', repo: c.repos.warehouses, create: s, patch: s.partial() });
 }
+
+const optEmail = z.string().trim().email().max(320).nullable().optional();
+const optPhone = z.string().trim().regex(/^\+?[0-9 ()-]{5,20}$/, 'invalid phone').nullable().optional();
+
+export function supplierRoutes(c: Container): Router {
+  const s = z.object({ name, email: optEmail, phone: optPhone, notes: z.string().max(2000).optional() });
+  return crudRoutes({ entity: 'Supplier', repo: c.repos.suppliers, create: s, patch: s.partial() });
+}
+
+export function customerRoutes(c: Container): Router {
+  const s = z.object({ name, email: optEmail, phone: optPhone });
+  return crudRoutes({ entity: 'Customer', repo: c.customers, create: s, patch: s.partial() });
+}

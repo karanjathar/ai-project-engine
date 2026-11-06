@@ -8,3 +8,4 @@
 - **T05:** Added a generic SimpleRepo + crudRoutes factory (whitelisted columns, escaped ILIKE search) and a ProductsRepo that computes totalQuantity across warehouses. Products support normalised SKUs, JSON custom attributes, search/category/low-stock filters, and duplicate-SKU 409s.
 - **T06:** Added warehouse CRUD on the generic crud router with uppercase unique location codes. Stock is tracked per product per warehouse from here on.
 - **T07:** Added StockService with receive/issue/adjust/transfer. All writes go through one conditional UPDATE (never below zero) plus an immutable ledger row, with row locks taken in a consistent order to avoid deadlocks. A 25-way race test proves no overselling, and post-commit observers enable realtime and alerts.
+- **T08:** Added supplier and customer CRUD with email/phone validation. CustomersRepo.findOrCreateByChannel idempotently maps a chat identity (e.g. a WhatsApp number) to a customer record.

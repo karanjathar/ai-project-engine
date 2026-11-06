@@ -11,7 +11,7 @@ Each task is TDD: failing test → implementation → `npm run typecheck && npm 
 - [x] T05 Categories + Products CRUD with custom attributes, search, duplicate-SKU 409
 - [x] T06 Warehouses CRUD
 - [x] T07 Stock service: receive/issue/adjust/transfer, atomic, ledger, never negative (incl. concurrency test)
-- [ ] T08 Suppliers + Customers CRUD
+- [x] T08 Suppliers + Customers CRUD
 - [ ] T09 Settings service (dynamic, defaults merged) + `/settings`
 - [ ] T10 Realtime event bus + SSE `/events`; stock events emitted
 - [ ] T11 Orders: create / confirm (atomic stock deduction) / fulfill / cancel (restock)
