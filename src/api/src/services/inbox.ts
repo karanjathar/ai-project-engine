@@ -16,7 +16,13 @@ export class InboxService {
     private readonly logger: Logger,
   ) {}
 
-  async receive(msg: InboundMessage): Promise<void> {
+  async receive(input: InboundMessage): Promise<void> {
+    let msg = input;
+    if (msg.action && msg.text === msg.action) {
+      // Label-less tap (Telegram callback_query): show staff the option title instead of the raw action id.
+      const option = (await this.messages.lastOptions(msg.channel, msg.from)).find((o) => o.id === msg.action);
+      if (option) msg = { ...msg, text: option.title };
+    }
     const text = msg.text.trim();
     if (!text) return;
     const fresh = await this.messages.logInbound({ ...msg, text });

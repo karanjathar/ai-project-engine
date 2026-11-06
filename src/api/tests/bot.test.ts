@@ -115,3 +115,19 @@ describe('numbered replies via the real channel hub (T28)', () => {
     expect(String((f.calls.at(-1)!.body as { text: string }).text)).toContain('Welcome');
   });
 });
+
+describe('tap labels in the inbox (T45)', () => {
+  it('logs and publishes the option title for label-less Telegram taps', async () => {
+    const events: RealtimeEvent[] = [];
+    const c = createContainer({ env: loadEnv({ ...TEST_ENV, TELEGRAM_BOT_TOKEN: '1:T' }), pool: t.pool, fetch: fakeFetch().fn });
+    c.events.subscribe((e) => events.push(e));
+    await c.inbox.receive({ channel: 'telegram', from: '777', text: 'hey', externalId: 'tg:777:1' });
+    await c.inbox.receive({ channel: 'telegram', from: '777', text: 'catalog', action: 'catalog', externalId: 'tgcb:abc' });
+    const inbound = (await c.messages.list({ channel: 'telegram', limit: 10 })).filter((m) => m.direction === 'in' && m.externalUser === '777');
+    expect(inbound.map((m) => m.text)).toEqual(['🛍 Browse catalog', 'hey']);
+    expect(events.filter((e) => e.type === 'message.received').map((e) => e.type === 'message.received' && e.text)).toEqual(['hey', '🛍 Browse catalog']);
+    // unknown action ids fall back to the raw id
+    await c.inbox.receive({ channel: 'telegram', from: '777', text: 'zzz', action: 'zzz', externalId: 'tgcb:def' });
+    expect((await c.messages.list({ channel: 'telegram', limit: 10 })).find((m) => m.direction === 'in' && m.text === 'zzz')).toBeTruthy();
+  });
+});
