@@ -24,7 +24,8 @@ export interface CustomFieldDef { key: string; label: string; type: 'text' | 'nu
 export interface Settings { businessName: string; currency: string; whatsappNumber: string; defaultWarehouseId: string | null;
   alertRecipients: AlertRecipient[]; customFields: CustomFieldDef[] }
 export interface ChannelMessage { id: string; channel: ChannelName; direction: 'in' | 'out'; externalUser: string; text: string; status: string; createdAt: string }
-export interface InboundMessage { channel: ChannelName; from: string; text: string; externalId?: string; senderName?: string }
+/** `action` is the id of a tapped button / list row / quick reply (docs/3_SCHEMAS.md §3.12); absent for typed text. */
+export interface InboundMessage { channel: ChannelName; from: string; text: string; action?: string; externalId?: string; senderName?: string }
 export type RealtimeEvent =
   | { type: 'stock.changed'; productId: string; sku: string; warehouseId: string; quantity: number; totalQuantity: number }
   | { type: 'stock.low'; productId: string; sku: string; name: string; totalQuantity: number; reorderLevel: number }

@@ -148,7 +148,7 @@ Anything else → help text.
 ---
 # Release 2 contracts (payments & tap-to-order)
 
-## 3.6 Release 2 Database — `src/api/migrations/002_payments_chat.sql`
+## 3.6 Release 2 Database — `src/api/migrations/003_payments_chat.sql`
 ```sql
 ALTER TABLE orders
   ADD COLUMN payment_method text NOT NULL DEFAULT 'COD' CHECK (payment_method IN ('COD','ONLINE')),

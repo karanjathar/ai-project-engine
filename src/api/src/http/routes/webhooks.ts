@@ -2,7 +2,7 @@ import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { Container } from '../../container.js';
-import { parseMetaWebhook, parseTelegramUpdate } from '../../channels/parse.js';
+import { parseMetaWebhook, parseTelegramUpdate, telegramCallbackId } from '../../channels/parse.js';
 
 export function safeEqual(a: string, b: string): boolean {
   const ab = Buffer.from(a);
@@ -50,6 +50,8 @@ export function webhookRoutes(c: Container): Router {
     if (!secret) { res.status(503).json(notConfigured); return; }
     const given = req.header('x-telegram-bot-api-secret-token') ?? '';
     if (!safeEqual(given, secret)) { res.status(401).json(badSignature); return; }
+    const tapId = telegramCallbackId(req.body);
+    if (tapId) await c.hub.acknowledgeTap('telegram', tapId).catch((err: unknown) => c.logger.warn({ err: String(err) }, 'answerCallbackQuery failed'));
     const msg = parseTelegramUpdate(req.body);
     if (msg) await c.inbox.receive(msg);
     res.status(200).json({ ok: true });

@@ -29,3 +29,6 @@ _One entry per significant decision. Newest at the bottom._
 
 ## D-008 Fake Razorpay for E2E until test keys exist (2026-11-06)
 **Context:** Real sandbox calls need the owner's Razorpay test keys. **Decision:** `RAZORPAY_API_BASE` points the client at a local fake implementing the documented endpoints and signing webhooks. Contract tests pin the documented payloads. **Consequences:** Full flows are verifiable offline. A real test-mode run stays a release checklist item until keys are provided.
+
+## D-009 Persist the options shown with each outbound reply (2026-11-06)
+**Context:** Channels without rich UI show numbered options, and the user answers "2". Mapping that back needs the options last shown to that user, and must work across restarts and replicas. **Decision:** Migration `002_reply_options.sql` adds `channel_messages.options jsonb`. The hub stores the options it rendered, and the inbox resolves a bare number against the latest outbound message to that user. The payments/chat migration becomes `003_payments_chat.sql`. **Consequences:** No in-memory session state. The criterion moved from T27 to T28.

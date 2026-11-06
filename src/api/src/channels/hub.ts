@@ -3,6 +3,7 @@ import { ValidationError } from '../domain/errors.js';
 import type { MessagesRepo } from '../repositories/messages.js';
 import type { Messenger } from '../services/messenger.js';
 import type { ChannelAdapter } from './types.js';
+import { TelegramAdapter } from './telegram.js';
 
 export class ChannelHub implements Messenger {
   private readonly adapters: Map<ChannelName, ChannelAdapter>;
@@ -13,6 +14,13 @@ export class ChannelHub implements Messenger {
 
   status(): { name: ChannelName; configured: boolean }[] {
     return [...this.adapters.values()].map((a) => ({ name: a.name, configured: a.isConfigured() }));
+  }
+
+  /** Acknowledge a Telegram inline-button tap (stops the client spinner). Best effort. */
+  async acknowledgeTap(channel: ChannelName, tapId: string): Promise<void> {
+    const adapter = this.adapters.get(channel);
+    if (!adapter?.isConfigured() || !(adapter instanceof TelegramAdapter)) return;
+    await adapter.answerCallbackQuery(tapId);
   }
 
   async send(channel: ChannelName, to: string, text: string): Promise<void> {
