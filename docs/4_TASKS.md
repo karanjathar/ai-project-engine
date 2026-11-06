@@ -3,7 +3,7 @@ Each task is TDD: failing test → implementation → `npm run typecheck && npm 
 
 ## Foundation
 - [x] T01 Monorepo tooling: npm workspaces, strict tsconfig, eslint, vitest; env config loader with zod validation (test: invalid env rejected)
-- [ ] T02 DB layer: pg pool, `withTx`, SQL migrator + `001_init.sql` (test: migrations apply idempotently)
+- [x] T02 DB layer: pg pool, `withTx`, SQL migrator + `001_init.sql` (test: migrations apply idempotently)
 - [ ] T03 HTTP skeleton: app factory, helmet/cors/rate limit, error middleware, `/healthz` (test: health + 404 + error mapping)
 
 ## Core domain
