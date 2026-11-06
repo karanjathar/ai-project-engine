@@ -76,6 +76,9 @@
     "allowSecretFiles": [".env.example"],
   },
 
+  // Set generateWorkflow to false if the project already has its own CI that runs the gates.
+  "ci": { "generateWorkflow": true },
+
   // Claude Code hooks installed by `engine sync`.
   "hooks": { "guardSecrets": true, "gateOnStop": true },
 

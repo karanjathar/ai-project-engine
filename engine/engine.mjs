@@ -223,7 +223,7 @@ function refContext(refs) {
 
 // ---------------------------------------------------------------- gates
 
-const ANSI = /\x1b\[[0-9;?]*[A-Za-z]/g;
+const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;?]*[A-Za-z]`, 'g');
 function tail(text, n) {
   const lines = text.replace(ANSI, '').replace(/\s+$/, '').split('\n');
   return lines.length <= n ? lines.join('\n') : `${dim(`… ${lines.length - n} earlier lines hidden …`)}\n${lines.slice(-n).join('\n')}`;
@@ -389,7 +389,7 @@ export function syncFiles(cfg, { force = false } = {}) {
 
   // 6. CI workflow (created once; extend it freely afterwards).
   const ciSetup = (cfg.stack?.ci?.setup ?? []).map((l) => `      ${l}`).join('\n');
-  once('.github/workflows/engine-ci.yml', render(read(path.join(ENGINE_DIR, 'templates/ci.yml')), { ...ctx, ciSetup: ciSetup || '      # (no runtime setup needed)' }, 'ci.yml'));
+  if (cfg.ci?.generateWorkflow !== false) once('.github/workflows/engine-ci.yml', render(read(path.join(ENGINE_DIR, 'templates/ci.yml')), { ...ctx, ciSetup: ciSetup || '      # (no runtime setup needed)' }, 'ci.yml'));
 
   // 7. .gitignore essentials.
   const giPath = path.join(ROOT, '.gitignore');
@@ -539,7 +539,7 @@ ${ctxRefs}
 ## Gates
 ${gates}
 `;
-  write(F.current, content.replace(/\x1b\[[0-9;]*m/g, ''));
+  write(F.current, content.replace(ANSI, ''));
   console.log(`${bold(`▶ ${next.id}`)} ${next.title}  ${dim(`(${next.phase})`)}\n  → wrote docs/5_CURRENT_TASK.md — read ONLY that file plus the files it lists.`);
 };
 
@@ -640,6 +640,15 @@ commands.approve = (args) => {
   if (isApproved(key)) { console.log(`Already approved: ${key}`); return; }
   appendToSection('Approvals', `- ${key} — approved by ${who} on ${today()}`);
   console.log(`${green('✔')} approved: ${key}`);
+  if (kind === 'plan' && existsSync(F.tasks)) {
+    // Existing projects: phases already complete when the plan is approved are accepted as the baseline.
+    for (const p of phases(parseTasks(read(F.tasks)))) {
+      if (p.total && p.done === p.total && !isApproved(`phase ${p.name}`)) {
+        appendToSection('Approvals', `- phase ${p.name} — baseline (complete when the plan was approved)`);
+        console.log(dim(`  baseline: phase "${p.name}" was already complete`));
+      }
+    }
+  }
 };
 
 commands.status = () => {

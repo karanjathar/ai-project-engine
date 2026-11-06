@@ -24,7 +24,7 @@ function project() {
   const put = (p, s) => { mkdirSync(path.dirname(path.join(dir, p)), { recursive: true }); writeFileSync(path.join(dir, p), s); };
   /** Replace the gates with fast, controllable commands. */
   const setGates = (gates) => {
-    const cfg = file('engine.config.jsonc').replace(/"gates": \[[\s\S]*?\n    \],/, `"gates": ${JSON.stringify(gates)},`);
+    const cfg = file('engine.config.jsonc').replace(/"gates": \[[\s\S]*?\n {4}\],/, `"gates": ${JSON.stringify(gates)},`);
     put('engine.config.jsonc', cfg);
   };
   return { dir, run, file, put, setGates };
@@ -140,6 +140,26 @@ describe('build loop enforcement', () => {
     p.put('docs/3_SCHEMAS.md', '# Schemas\n## Users\nid uuid, email text\n## Orders\nid uuid, total int\n');
     spawnSync('git', ['add', '-A'], { cwd: p.dir });
     spawnSync('git', ['commit', '-qm', 'init'], { cwd: p.dir });
+  });
+
+  test('approving the plan baselines phases that were already complete (brownfield)', () => {
+    const q = project();
+    q.run(['init', '--profile', 'node-ts', '--name', 'brown']);
+    q.put('docs/4_TASKS.md', '# Tasks\n## Legacy\n- [x] T01 Old work\n## New\n- [ ] T02 New work\n');
+    q.run(['approve', 'plan']);
+    assert.match(q.file('docs/6_STATE_SUMMARY.md'), /- phase Legacy — baseline/);
+    assert.match(q.run(['next']).out, /T02/);
+  });
+
+  test('CI workflow generation can be disabled', () => {
+    const q = project();
+    q.run(['init', '--profile', 'node-ts', '--name', 'noci']);
+    q.run(['sync']);
+    const ci = path.join(q.dir, '.github/workflows/engine-ci.yml');
+    spawnSync('rm', ['-f', ci]);
+    q.put('engine.config.jsonc', q.file('engine.config.jsonc').replace('"generateWorkflow": true', '"generateWorkflow": false'));
+    q.run(['sync']);
+    assert.equal(existsSync(ci), false);
   });
 
   test('next refuses until the plan is approved (checkpoint)', () => {
