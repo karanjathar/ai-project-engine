@@ -208,3 +208,45 @@ describe('cancelling a paid order (T47)', () => {
     expect((await t.c.orders.get(cod.id))!.paymentStatus).toBe('UNPAID');
   });
 });
+
+describe('cancelling an order cancels its payment link (T48)', () => {
+  const cancelCalls = () => rz.calls.filter((c) => c.url.endsWith('/cancel')).map((c) => c.url.split('/').at(-2));
+  const refOf = async (orderId: string) => (await t.pool.query('SELECT provider_ref, status FROM payments WHERE order_id = $1', [orderId])).rows[0] as { provider_ref: string; status: string };
+
+  it('marks the payment CANCELLED and cancels the link at Razorpay', async () => {
+    const { order } = await checkoutOnline(1, '919822220020');
+    const { provider_ref } = await refOf(order.id);
+    await t.c.orders.cancel(order.id, null);
+    expect((await refOf(order.id)).status).toBe('CANCELLED');
+    expect(cancelCalls()).toContain(provider_ref);
+  });
+
+  it('leaves already-expired links alone and does nothing for orders without a link', async () => {
+    const { order } = await checkoutOnline(1, '919822220021');
+    await t.pool.query("UPDATE payments SET status = 'EXPIRED' WHERE order_id = $1", [order.id]);
+    const before = cancelCalls().length;
+    await t.c.orders.cancel(order.id, null);
+    expect((await refOf(order.id)).status).toBe('EXPIRED');
+    await tap(`qty:${ids.tee.id}:1`, '919822220022');
+    await tap('pay:cod', '919822220022');
+    const cod = (await t.c.orders.list({ customerId: (await t.c.customers.findOrCreateByChannel('whatsapp', '919822220022', 'Priya')).id, limit: 1 }))[0]!;
+    await t.c.orders.cancel(cod.id, null);
+    expect(cancelCalls().length).toBe(before);
+  });
+
+  it('still cancels the order if Razorpay is unreachable — and a later payment of that link is flagged for refund', async () => {
+    const who = '919822220023';
+    const { order } = await checkoutOnline(1, who);
+    const { provider_ref } = await refOf(order.id);
+    rz.setFailing(true);
+    try { await t.c.orders.cancel(order.id, null); } finally { rz.setFailing(false); }
+    expect(await t.c.orders.get(order.id)).toMatchObject({ status: 'CANCELLED', paymentStatus: 'UNPAID' });
+    expect((await refOf(order.id)).status).toBe('CANCELLED');
+
+    sent.length = 0;
+    expect((await pay(provider_ref, 1500, 'evt_c48_late')).status).toBe(200); // customer paid the stale link anyway
+    expect(await t.c.orders.get(order.id)).toMatchObject({ status: 'CANCELLED', paymentStatus: 'REFUND_DUE' });
+    expect(sent.some((m) => m.to === 'STAFF' && m.text.includes(`#${order.number}`))).toBe(true);
+    expect(toBuyer(who).at(-1)).toMatch(/refund/i);
+  });
+});

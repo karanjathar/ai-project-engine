@@ -109,6 +109,16 @@ export class PaymentService {
    */
   async onOrderStatusChange(order: Order, previous: OrderStatus | null): Promise<void> {
     if (order.status !== 'CANCELLED' || previous === null) return;
+    // An open link must not stay payable. Mark it locally first (so a late payment is recognised as paid-after-cancel
+    // by the webhook), then cancel it at Razorpay on a best-effort basis: an outage must not block the cancellation.
+    const closed = await this.pool.query<{ provider_ref: string }>(
+      "UPDATE payments SET status = 'CANCELLED', updated_at = now() WHERE order_id = $1 AND status = 'CREATED' RETURNING provider_ref", [order.id]);
+    if (this.razorpay.isConfigured()) {
+      for (const { provider_ref } of closed.rows) {
+        await this.razorpay.cancelPaymentLink(provider_ref)
+          .catch((err: unknown) => this.logger.warn({ err: String(err), order: order.number }, 'could not cancel payment link at Razorpay'));
+      }
+    }
     // Decided on the database row, not the (possibly stale) order object, so a concurrent webhook can't be missed.
     const flagged = await this.pool.query(
       "UPDATE orders SET payment_status = 'REFUND_DUE', updated_at = now() WHERE id = $1 AND payment_status = 'PAID' RETURNING id", [order.id]);
