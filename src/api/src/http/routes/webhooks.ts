@@ -3,6 +3,7 @@ import rateLimit from 'express-rate-limit';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { Container } from '../../container.js';
 import { parseMetaWebhook, parseTelegramUpdate, telegramCallbackId } from '../../channels/parse.js';
+import { verifyWebhookSignature } from '../../payments/razorpay.js';
 
 export function safeEqual(a: string, b: string): boolean {
   const ab = Buffer.from(a);
@@ -54,6 +55,15 @@ export function webhookRoutes(c: Container): Router {
     if (tapId) await c.hub.acknowledgeTap('telegram', tapId).catch((err: unknown) => c.logger.warn({ err: String(err) }, 'answerCallbackQuery failed'));
     const msg = parseTelegramUpdate(req.body);
     if (msg) await c.inbox.receive(msg);
+    res.status(200).json({ ok: true });
+  });
+
+  // Razorpay Payment Links: payment state changes only here (D-003). Signature over the raw body, event-id idempotent.
+  r.post('/razorpay', async (req, res) => {
+    const secret = c.razorpay.webhookSecret;
+    if (!secret) { res.status(503).json(notConfigured); return; }
+    if (!verifyWebhookSignature(req.rawBody, req.header('x-razorpay-signature'), secret)) { res.status(401).json(badSignature); return; }
+    await c.payments.handleWebhook(req.header('x-razorpay-event-id'), req.rawBody, req.body);
     res.status(200).json({ ok: true });
   });
 

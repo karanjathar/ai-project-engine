@@ -2,24 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import { buildTestApp, type TestApp } from './helpers/app.js';
 import { seedCatalog } from './helpers/fixtures.js';
-import type { Captured } from './helpers/fakeFetch.js';
-
-/** Fake Razorpay: answers Payment Links calls with incrementing ids; records requests. */
-function fakeRazorpay() {
-  const calls: Captured[] = [];
-  let n = 0;
-  const fn = (async (input: string | URL | Request, init?: RequestInit) => {
-    const url = String(input);
-    calls.push({ url, method: init?.method ?? 'GET', headers: Object.fromEntries(new Headers(init?.headers).entries()), body: init?.body ? JSON.parse(String(init.body)) : undefined });
-    if (url.endsWith('/v1/payment_links')) {
-      n += 1;
-      return Response.json({ id: `plink_${n}`, short_url: `https://rzp.io/i/link${n}`, status: 'created' });
-    }
-    if (url.includes('/cancel')) return Response.json({ status: 'cancelled' });
-    return Response.json({ ok: true });
-  }) as typeof fetch;
-  return { fn, calls, links: () => calls.filter((c) => c.url.endsWith('/v1/payment_links')) };
-}
+import { fakeRazorpay } from './helpers/fakeRazorpay.js';
 
 const RZP = { RAZORPAY_KEY_ID: 'rzp_test_x', RAZORPAY_KEY_SECRET: 'ks', RAZORPAY_WEBHOOK_SECRET: 'ws', PUBLIC_BASE_URL: 'https://shop.example.com' };
 let t: TestApp;
