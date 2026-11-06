@@ -26,7 +26,7 @@ Each task is TDD: failing test → implementation → `npm run typecheck && npm 
 - [x] T18 Composition root `index.ts`, static SPA serving, App Insights hook, graceful shutdown
 
 ## Web
-- [ ] T19 Web scaffold: Vite + React + router, API client, auth context, layout, login (test: login form)
+- [x] T19 Web scaffold: Vite + React + router, API client, auth context, layout, login (test: login form)
 - [ ] T20 Dashboard (KPIs + live SSE feed), Products (dynamic custom fields, image upload), Categories
 - [ ] T21 Inventory (levels, receive/issue/adjust/transfer), Movements, Warehouses
 - [ ] T22 Orders, Customers, Suppliers, Inbox (send reply), Settings, Users
